@@ -133,8 +133,7 @@ button {
 .flip-button,
 .grade-button,
 .deck-item,
-.tag-chip,
-.group-chip {
+.mode-button {
   border: 1px solid var(--line);
   border-radius: var(--radius-small);
   background:
@@ -175,8 +174,7 @@ button {
 .flip-button:hover,
 .grade-button:hover,
 .deck-item:hover,
-.tag-chip:hover,
-.group-chip:hover {
+.mode-button:hover {
   transform: translateY(-1px);
   border-color: var(--accent);
   box-shadow: 0 14px 30px rgba(176, 57, 152, 0.14);
@@ -193,9 +191,7 @@ button {
   text-transform: uppercase;
 }
 
-.deck-list,
-.tag-list,
-.group-list {
+.deck-list {
   display: grid;
   gap: 8px;
 }
@@ -210,8 +206,7 @@ button {
 }
 
 .deck-item.active,
-.tag-chip.active,
-.group-chip.active {
+.mode-button.active {
   border-color: var(--accent);
   background:
     linear-gradient(135deg, rgba(255, 125, 212, 0.34), rgba(151, 110, 255, 0.24)),
@@ -222,32 +217,6 @@ button {
   display: block;
   margin-top: 4px;
   color: var(--muted);
-}
-
-.search-input {
-  width: 100%;
-  height: 38px;
-  margin-bottom: 10px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-small);
-  background: var(--glass-strong);
-  color: var(--ink);
-}
-
-.tag-list {
-  max-height: 38vh;
-  overflow: auto;
-  align-content: start;
-}
-
-.tag-chip,
-.group-chip {
-  min-height: 32px;
-  padding: 6px 9px;
-  text-align: left;
-  font-family: "Trebuchet MS", "Noto Sans SC", sans-serif;
-  font-size: 12px;
 }
 
 .tree-folder {
@@ -281,6 +250,52 @@ button {
   color: var(--muted);
   font-family: "Trebuchet MS", "Noto Sans SC", sans-serif;
   font-size: 12px;
+}
+
+.mode-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mode-button {
+  min-height: 36px;
+  padding: 6px 10px;
+  font-family: "Trebuchet MS", "Noto Sans SC", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.review-summary {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.review-summary div {
+  min-height: 52px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-small);
+  background: var(--glass);
+  font-family: "Trebuchet MS", "Noto Sans SC", sans-serif;
+}
+
+.review-summary b,
+.review-summary span {
+  display: block;
+}
+
+.review-summary b {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.review-summary span {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .background-grid {
@@ -398,7 +413,7 @@ button {
 .card-face {
   padding: clamp(26px, 5vw, 56px);
   display: grid;
-  grid-template-rows: auto auto 1fr;
+  grid-template-rows: auto auto 1fr auto;
   gap: 14px;
 }
 
@@ -413,6 +428,13 @@ button {
   color: var(--accent-dark);
   font-family: "Trebuchet MS", "Noto Sans SC", sans-serif;
   font-size: 13px;
+}
+
+.card-stats {
+  min-height: 20px;
+  color: var(--muted);
+  font-family: "Trebuchet MS", "Noto Sans SC", sans-serif;
+  font-size: 12px;
 }
 
 body[data-bg="dusk"] .card-group {
@@ -539,15 +561,8 @@ body[data-bg="dusk"] .card-group {
     border-bottom: 1px solid var(--line);
   }
 
-  .deck-list,
-  .tag-list,
-  .group-list {
+  .deck-list {
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  }
-
-  .tag-list,
-  .group-list {
-    max-height: 160px;
   }
 
   .topbar {

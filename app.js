@@ -6,12 +6,15 @@ const state = {
   showingAnswer: false,
   activeDeck: "",
   activeDeckId: "",
-  activeGroup: "",
-  activeTag: "",
+  activeNodeId: "",
+  activePathKey: "",
+  activePathLabel: "",
+  studyMode: "due",
   progress: {},
   background: "aurora",
   touchStartX: 0,
   touchStartY: 0,
+  pointerMoved: false,
   suppressNextFlip: false
 };
 
@@ -21,15 +24,15 @@ const els = {
   fileInput: document.getElementById("file-input"),
   reloadButton: document.getElementById("reload-button"),
   deckList: document.getElementById("deck-list"),
-  groupList: document.getElementById("group-list"),
-  tagList: document.getElementById("tag-list"),
-  tagSearch: document.getElementById("tag-search"),
+  reviewSummary: document.getElementById("review-summary"),
+  modeButtons: document.querySelectorAll("[data-mode]"),
   deckTitle: document.getElementById("deck-title"),
   deckMeta: document.getElementById("deck-meta"),
   progressFill: document.getElementById("progress-fill"),
   card: document.getElementById("card"),
   cardKicker: document.getElementById("card-kicker"),
   cardContent: document.getElementById("card-content"),
+  cardStats: document.getElementById("card-stats"),
   prevButton: document.getElementById("prev-button"),
   nextButton: document.getElementById("next-button"),
   flipButton: document.getElementById("flip-button"),
@@ -40,7 +43,8 @@ const els = {
 };
 
 function cardId(card) {
-  return `${card.front}::${card.back}::${card.tags.join(" ")}`;
+  if (card.nid) return `${card.deckId || card.deck}::${card.nid}::${card.front}`;
+  return `${card.deckId || card.deck}::${card.pathKey || ""}::${card.front}::${card.back}`;
 }
 
 function loadProgress() {
@@ -53,6 +57,63 @@ function loadProgress() {
 
 function saveProgress() {
   localStorage.setItem("deckfile-progress", JSON.stringify(state.progress));
+}
+
+function normalizeRecord(record) {
+  if (!record) return null;
+  return {
+    reps: Number(record.reps || 1),
+    lapses: Number(record.lapses || 0),
+    intervalDays: Number(record.intervalDays || 0),
+    lastGrade: record.lastGrade || record.grade || "",
+    lastReviewedAt: record.lastReviewedAt || record.updatedAt || "",
+    dueAt: record.dueAt || record.updatedAt || ""
+  };
+}
+
+function cardRecord(card) {
+  return normalizeRecord(state.progress[cardId(card)]);
+}
+
+function isNew(card) {
+  return !cardRecord(card);
+}
+
+function isDue(card, now = Date.now()) {
+  const record = cardRecord(card);
+  if (!record) return true;
+  if (!record.dueAt) return true;
+  return new Date(record.dueAt).getTime() <= now;
+}
+
+function cardStatus(card, now = Date.now()) {
+  const record = cardRecord(card);
+  if (!record) return "new";
+  return isDue(card, now) ? "due" : "scheduled";
+}
+
+function formatDateTime(value) {
+  if (!value) return "未安排";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "未安排";
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function reviewCounts(cards) {
+  const now = Date.now();
+  return cards.reduce((counts, card) => {
+    const status = cardStatus(card, now);
+    counts.total += 1;
+    if (status === "new") counts.new += 1;
+    if (status === "due") counts.due += 1;
+    if (status === "scheduled") counts.scheduled += 1;
+    return counts;
+  }, { total: 0, new: 0, due: 0, scheduled: 0 });
 }
 
 function loadBackground() {
@@ -161,10 +222,30 @@ function splitMarkdownRow(line) {
   return splitPipeRow(trimmed);
 }
 
-function parseCards(markdown, deckName) {
+function extractNid(...values) {
+  for (const value of values) {
+    const match = String(value || "").match(/\bnidd?\d{6,}\b/i);
+    if (match) return match[0];
+  }
+  return "";
+}
+
+function stripNid(value) {
+  return String(value || "")
+    .replace(/(?:\s*<br\s*\/?>\s*){0,2}\bnidd?\d{6,}\b/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function normalizeHeadingPath(stack) {
+  return stack.filter(Boolean).map((item) => item.trim()).filter(Boolean);
+}
+
+function parseCards(markdown, deck) {
   const cards = [];
   const lines = markdown.replace(/\r\n/g, "\n").split("\n");
-  let currentGroup = "未分组";
+  const headingStack = [];
+  const deckName = deck.name;
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
@@ -172,7 +253,9 @@ function parseCards(markdown, deckName) {
 
     const heading = line.match(/^#{1,6}\s+(.+)$/);
     if (heading) {
-      currentGroup = heading[1].trim();
+      const level = Math.min(heading[0].match(/^#+/)[0].length, 6);
+      headingStack[level - 1] = heading[1].trim();
+      headingStack.length = level;
       continue;
     }
 
@@ -182,15 +265,31 @@ function parseCards(markdown, deckName) {
     const first = parts[0].replace(/<[^>]*>/g, "").trim().toLowerCase();
     if (["问题", "question", "front", "正面"].includes(first)) continue;
 
-    const front = parts[0] || "";
-    const back = parts[1] || "";
-    const tags = (parts[2] || currentGroup || deckName)
+    const rawFront = parts[0] || "";
+    const rawBack = parts[1] || "";
+    const rawTags = parts[2] || "";
+    const front = stripNid(rawFront);
+    const back = stripNid(rawBack);
+    const headingPath = normalizeHeadingPath(headingStack);
+    const group = headingPath.join(" / ") || "未分组";
+    const tags = (rawTags || group || deckName)
       .split(/\s+/)
       .map((tag) => tag.trim())
       .filter(Boolean);
+    const nid = extractNid(rawFront, rawBack, rawTags);
 
     if (!front || !back) continue;
-    cards.push({ front, back, tags, deck: deckName, group: currentGroup });
+    cards.push({
+      front,
+      back,
+      tags,
+      nid,
+      deck: deckName,
+      deckId: deck.id,
+      group,
+      path: headingPath,
+      pathKey: headingPath.join("\u001f")
+    });
   }
 
   return cards;
@@ -211,17 +310,19 @@ async function loadRepositoryDecks() {
       const cardResponse = await fetch(`cards/${deck.file}`, { cache: "no-store" });
       if (!cardResponse.ok) continue;
       const text = await cardResponse.text();
-      decks.push({
+      const deckItem = {
         id: deck.file,
         name: deckDisplayName(deck),
         file: deck.file,
-        cards: parseCards(text, deckDisplayName(deck))
-      });
+        cards: []
+      };
+      deckItem.cards = parseCards(text, deckItem);
+      decks.push(deckItem);
     }
 
     state.decks = decks.filter((deck) => deck.cards.length);
     renderDeckList();
-    if (state.decks.length) selectDeck(state.decks[0].id);
+    if (state.decks.length) selectStudyNode(state.decks[0].id);
   } catch {
     renderDeckList();
     renderCard();
@@ -232,39 +333,111 @@ async function importFiles(files) {
   const imported = [];
   for (const file of files) {
     const text = await file.text();
-    const cards = parseCards(text, file.name.replace(/\.(md|markdown|txt|tsv)$/i, ""));
-    if (cards.length) imported.push({ id: `local/${file.name}/${file.size}/${file.lastModified}`, name: file.name, file: `本地/${file.name}`, cards });
+    const deckItem = {
+      id: `local/${file.name}/${file.size}/${file.lastModified}`,
+      name: file.name.replace(/\.(md|markdown|txt|tsv)$/i, ""),
+      file: `本地/${file.name}`,
+      cards: []
+    };
+    deckItem.cards = parseCards(text, deckItem);
+    if (deckItem.cards.length) imported.push(deckItem);
   }
   state.decks = [...imported, ...state.decks.filter((deck) => !imported.some((item) => item.id === deck.id))];
   renderDeckList();
-  if (imported.length) selectDeck(imported[0].id);
+  if (imported.length) selectStudyNode(imported[0].id);
 }
 
-function selectDeck(id) {
-  const deck = state.decks.find((item) => item.id === id);
+function scopeId(deckId, pathKey = "") {
+  return pathKey ? `${deckId}#${pathKey}` : deckId;
+}
+
+function pathMatches(card, pathKey) {
+  return !pathKey || card.pathKey === pathKey || card.pathKey.startsWith(`${pathKey}\u001f`);
+}
+
+function cardsForScope(deckId, pathKey = "") {
+  const deck = state.decks.find((item) => item.id === deckId);
+  if (!deck) return [];
+  return deck.cards.filter((card) => pathMatches(card, pathKey));
+}
+
+function filteredByStudyMode(cards) {
+  if (state.studyMode !== "due") return cards;
+  return cards.filter((card) => isNew(card) || isDue(card));
+}
+
+function selectStudyNode(deckId, pathKey = "", label = "") {
+  const deck = state.decks.find((item) => item.id === deckId);
   if (!deck) return;
   state.activeDeck = deck.name;
   state.activeDeckId = deck.id;
-  state.activeGroup = "";
-  state.activeTag = "";
-  state.cards = deck.cards;
+  state.activePathKey = pathKey;
+  state.activeNodeId = scopeId(deck.id, pathKey);
+  state.activePathLabel = label;
+  state.cards = cardsForScope(deck.id, pathKey);
   state.index = 0;
   state.showingAnswer = false;
   applyFilter();
   renderDeckList();
-  renderGroups();
-  renderTags();
+  renderReviewSummary();
 }
 
 function applyFilter() {
-  state.filtered = state.cards.filter((card) => {
-    const groupMatch = state.activeGroup ? card.group === state.activeGroup : true;
-    const tagMatch = state.activeTag ? card.tags.includes(state.activeTag) : true;
-    return groupMatch && tagMatch;
-  });
+  state.filtered = filteredByStudyMode(state.cards);
   if (state.index >= state.filtered.length) state.index = 0;
   state.showingAnswer = false;
   renderCard();
+  renderReviewSummary();
+}
+
+function createTreeNode(label, type, data = {}) {
+  return { label, type, children: [], childMap: new Map(), ...data };
+}
+
+function childNode(parent, key, label, type, data = {}) {
+  if (!parent.childMap.has(key)) {
+    const node = createTreeNode(label, type, data);
+    parent.childMap.set(key, node);
+    parent.children.push(node);
+  }
+  return parent.childMap.get(key);
+}
+
+function buildDeckTree() {
+  const root = createTreeNode("root", "root");
+
+  state.decks.forEach((deck) => {
+    const segments = (deck.file || deck.name).replace(/\\/g, "/").split("/").filter(Boolean);
+    const folders = segments.length > 1 ? segments.slice(0, -1) : [];
+    let parent = root;
+
+    folders.forEach((segment) => {
+      parent = childNode(parent, `folder:${segment}`, segment, "folder");
+    });
+
+    const deckNode = childNode(parent, `deck:${deck.id}`, deck.name, "scope", {
+      deckId: deck.id,
+      pathKey: "",
+      labelPath: ""
+    });
+
+    deck.cards.forEach((card) => {
+      let scopeParent = deckNode;
+      const pathParts = [];
+
+      card.path.forEach((part) => {
+        pathParts.push(part);
+        const pathKey = pathParts.join("\u001f");
+        scopeParent = childNode(scopeParent, `heading:${pathKey}`, part, "scope", {
+          deckId: deck.id,
+          pathKey,
+          labelPath: pathParts.join(" / ")
+        });
+      });
+    });
+  });
+
+  return root;
 }
 
 function renderDeckList() {
@@ -277,91 +450,50 @@ function renderDeckList() {
     return;
   }
 
-  const root = {};
-  state.decks.forEach((deck) => {
-    const segments = (deck.file || deck.name).replace(/\\/g, "/").split("/").filter(Boolean);
-    let node = root;
-    segments.forEach((segment, index) => {
-      node.children ||= {};
-      node.children[segment] ||= { label: segment, children: {} };
-      node = node.children[segment];
-      if (index === segments.length - 1) node.deck = deck;
-    });
-  });
-
-  renderTreeNode(root, els.deckList, 0);
+  renderTreeNode(buildDeckTree(), els.deckList, 0);
 }
 
 function renderTreeNode(node, container, depth) {
-  Object.values(node.children || {}).forEach((child) => {
-    if (child.deck) {
+  node.children.forEach((child) => {
+    if (child.type === "scope") {
+      const cards = cardsForScope(child.deckId, child.pathKey);
+      const counts = reviewCounts(cards);
+      const waiting = counts.new + counts.due;
+      const active = scopeId(child.deckId, child.pathKey) === state.activeNodeId;
       const button = document.createElement("button");
-      button.className = `deck-item file-node${child.deck.id === state.activeDeckId ? " active" : ""}`;
+      button.className = `deck-item file-node${active ? " active" : ""}`;
       button.style.setProperty("--depth", depth);
-      button.innerHTML = `<span class="tree-label">${sanitizeHTML(child.deck.name)}</span><small>${child.deck.cards.length} cards</small>`;
-      button.addEventListener("click", () => selectDeck(child.deck.id));
+      button.innerHTML = `
+        <span class="tree-label">${sanitizeHTML(child.label)}</span>
+        <small>待 ${waiting} · 新 ${counts.new} · 总 ${counts.total}</small>
+      `;
+      button.addEventListener("click", () => selectStudyNode(child.deckId, child.pathKey, child.labelPath));
       container.appendChild(button);
-    } else {
-      const folder = document.createElement("div");
-      folder.className = "tree-folder";
-      folder.style.setProperty("--depth", depth);
-      folder.textContent = child.label;
-      container.appendChild(folder);
       renderTreeNode(child, container, depth + 1);
+      return;
     }
+
+    const folder = document.createElement("div");
+    folder.className = "tree-folder";
+    folder.style.setProperty("--depth", depth);
+    folder.textContent = child.label;
+    container.appendChild(folder);
+    renderTreeNode(child, container, depth + 1);
   });
 }
 
-function renderGroups() {
-  const counts = new Map();
-  state.cards.forEach((card) => counts.set(card.group, (counts.get(card.group) || 0) + 1));
-
-  els.groupList.innerHTML = "";
-  if (!counts.size) {
-    const empty = document.createElement("div");
-    empty.className = "muted-line";
-    empty.textContent = "未加载";
-    els.groupList.appendChild(empty);
-    return;
-  }
-
-  [...counts.entries()].forEach(([group, count]) => {
-    const button = document.createElement("button");
-    button.className = `group-chip${group === state.activeGroup ? " active" : ""}`;
-    button.textContent = `${group} · ${count}`;
-    button.addEventListener("click", () => {
-      state.activeGroup = state.activeGroup === group ? "" : group;
-      state.index = 0;
-      applyFilter();
-      renderGroups();
-    });
-    els.groupList.appendChild(button);
+function renderReviewSummary() {
+  if (!els.reviewSummary) return;
+  const counts = reviewCounts(state.cards);
+  const waiting = counts.new + counts.due;
+  els.reviewSummary.innerHTML = `
+    <div><b>${waiting}</b><span>待复习</span></div>
+    <div><b>${counts.new}</b><span>新卡</span></div>
+    <div><b>${counts.scheduled}</b><span>已安排</span></div>
+  `;
+  els.modeButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.mode === state.studyMode);
   });
-}
-
-function renderTags() {
-  const query = els.tagSearch.value.trim().toLowerCase();
-  const counts = new Map();
-  state.cards.forEach((card) => {
-    card.tags.forEach((tag) => counts.set(tag, (counts.get(tag) || 0) + 1));
-  });
-
-  els.tagList.innerHTML = "";
-  [...counts.entries()]
-    .filter(([tag]) => tag.toLowerCase().includes(query))
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .forEach(([tag, count]) => {
-      const button = document.createElement("button");
-      button.className = `tag-chip${tag === state.activeTag ? " active" : ""}`;
-      button.textContent = `${tag} · ${count}`;
-      button.addEventListener("click", () => {
-        state.activeTag = state.activeTag === tag ? "" : tag;
-        state.index = 0;
-        applyFilter();
-        renderTags();
-      });
-      els.tagList.appendChild(button);
-    });
 }
 
 function renderCardHTML(card) {
@@ -383,14 +515,17 @@ function renderCard() {
   const total = state.filtered.length;
   const card = state.filtered[state.index];
   els.deckTitle.textContent = state.activeDeck || "未加载卡片";
-  els.deckMeta.textContent = `${total} cards${state.activeGroup ? ` · ${state.activeGroup}` : ""}${state.activeTag ? ` · ${state.activeTag}` : ""}`;
+  const scopeLabel = state.activePathLabel ? ` · ${state.activePathLabel}` : "";
+  const modeLabel = state.studyMode === "due" ? "待复习" : "全部";
+  els.deckMeta.textContent = `${modeLabel} ${total} cards${scopeLabel}`;
   els.progressFill.style.width = total ? `${((state.index + 1) / total) * 100}%` : "0%";
   els.card.classList.toggle("showing-answer", Boolean(card && state.showingAnswer));
 
   if (!card) {
     els.cardKicker.textContent = "Front";
-    els.cardGroup.textContent = "";
-    els.cardContent.textContent = "选择或导入 Markdown 文件";
+    els.cardGroup.textContent = state.studyMode === "due" ? "当前章节没有等待复习的卡片" : "";
+    els.cardContent.textContent = state.decks.length ? "切换到“全部”查看已安排的卡片" : "选择或导入 Markdown 文件";
+    els.cardStats.textContent = "";
     els.flipButton.textContent = "显示答案";
     return;
   }
@@ -398,13 +533,27 @@ function renderCard() {
   els.cardKicker.textContent = state.showingAnswer ? "Back" : "Front";
   els.cardGroup.textContent = card.group || "";
   els.cardContent.innerHTML = renderCardHTML(card);
+  els.cardStats.textContent = renderCardStats(card);
   els.flipButton.textContent = state.showingAnswer ? "显示问题" : "显示答案";
   renderMath();
+}
+
+function renderCardStats(card) {
+  const record = cardRecord(card);
+  if (!record) return "新卡 · 尚未复习";
+  const gradeName = { again: "重来", hard: "模糊", good: "记住" }[record.lastGrade] || "已复习";
+  return `已复习 ${record.reps} 次 · 上次 ${gradeName} · 下次 ${formatDateTime(record.dueAt)}`;
 }
 
 function toggleAnswer() {
   if (!state.filtered.length) return;
   state.showingAnswer = !state.showingAnswer;
+  renderCard();
+}
+
+function showAnswer() {
+  if (!state.filtered.length || state.showingAnswer) return;
+  state.showingAnswer = true;
   renderCard();
 }
 
@@ -435,15 +584,41 @@ function shuffleCards() {
 function gradeCurrent(grade) {
   const card = state.filtered[state.index];
   if (!card) return;
+  if (!state.showingAnswer) {
+    showAnswer();
+    return;
+  }
   const id = cardId(card);
-  state.progress[id] = { grade, updatedAt: new Date().toISOString() };
+  const previous = cardRecord(card);
+  const now = new Date();
+  const intervalDays = nextIntervalDays(grade, previous);
+  const dueAt = new Date(now.getTime() + intervalDays * 24 * 60 * 60 * 1000);
+  state.progress[id] = {
+    reps: (previous?.reps || 0) + 1,
+    lapses: (previous?.lapses || 0) + (grade === "again" ? 1 : 0),
+    intervalDays,
+    lastGrade: grade,
+    lastReviewedAt: now.toISOString(),
+    dueAt: dueAt.toISOString()
+  };
   saveProgress();
-  move(1);
+  renderDeckList();
+  if (state.studyMode === "due" && grade !== "again") {
+    applyFilter();
+  } else {
+    move(1);
+  }
+}
+
+function nextIntervalDays(grade, previous) {
+  if (grade === "again") return 0;
+  if (grade === "hard") return Math.max(1, Math.ceil((previous?.intervalDays || 0.5) * 1.4));
+  if (!previous) return 1;
+  return Math.max(2, Math.ceil((previous.intervalDays || 1) * 2.4));
 }
 
 els.fileInput.addEventListener("change", (event) => importFiles([...event.target.files]));
 els.reloadButton.addEventListener("click", loadRepositoryDecks);
-els.tagSearch.addEventListener("input", renderTags);
 els.prevButton.addEventListener("click", () => move(-1));
 els.nextButton.addEventListener("click", () => move(1));
 els.flipButton.addEventListener("click", toggleAnswer);
@@ -451,6 +626,17 @@ els.shuffleButton.addEventListener("click", shuffleCards);
 els.resetButton.addEventListener("click", () => {
   state.progress = {};
   saveProgress();
+  applyFilter();
+  renderDeckList();
+});
+els.modeButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    state.studyMode = button.dataset.mode;
+    state.index = 0;
+    state.showingAnswer = false;
+    applyFilter();
+    renderDeckList();
+  });
 });
 els.backgroundSwatches.forEach((button) => {
   button.addEventListener("click", () => setBackground(button.dataset.bg));
@@ -495,14 +681,14 @@ els.card.addEventListener("click", (event) => {
     state.suppressNextFlip = false;
     return;
   }
-  toggleAnswer();
+  showAnswer();
 });
 
 document.addEventListener("keydown", (event) => {
   if (event.target instanceof HTMLInputElement) return;
   if (event.key === " ") {
     event.preventDefault();
-    toggleAnswer();
+    showAnswer();
   } else if (event.key === "ArrowRight") {
     move(1);
   } else if (event.key === "ArrowLeft") {

@@ -47,19 +47,17 @@
         </div>
 
         <div class="deck-panel">
-          <div class="panel-title">文件树</div>
+          <div class="panel-title">牌组树</div>
           <div id="deck-list" class="deck-list"></div>
         </div>
 
         <div class="deck-panel">
-          <div class="panel-title">小分组</div>
-          <div id="group-list" class="group-list"></div>
-        </div>
-
-        <div class="deck-panel">
-          <div class="panel-title">标签</div>
-          <input id="tag-search" class="search-input" type="search" placeholder="筛选标签">
-          <div id="tag-list" class="tag-list"></div>
+          <div class="panel-title">复习队列</div>
+          <div class="mode-switch">
+            <button class="mode-button active" data-mode="due">待复习</button>
+            <button class="mode-button" data-mode="all">全部</button>
+          </div>
+          <div id="review-summary" class="review-summary"></div>
         </div>
 
         <div class="deck-panel">
@@ -95,6 +93,7 @@
               <div class="card-kicker" id="card-kicker">Question</div>
               <div class="card-group" id="card-group"></div>
               <div class="card-content" id="card-content">选择或导入 Markdown 文件</div>
+              <div class="card-stats" id="card-stats"></div>
             </div>
           </article>
 
