@@ -1,6 +1,8 @@
 # Deckfile
 
-这是一个可部署到 GitHub Pages 的静态 Anki 风格复习网页。卡片数据用 Markdown 保存，网页端直接解析。
+这是一个静态 Anki 风格复习网页。
+
+卡片数据用 Markdown 保存，网页端直接解析。
 
 ## 数据格式
 
