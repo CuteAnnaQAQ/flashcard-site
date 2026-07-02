@@ -388,6 +388,7 @@ button {
   backdrop-filter: blur(18px);
   touch-action: pan-y;
   user-select: none;
+  cursor: pointer;
 }
 
 .card:focus-visible {
@@ -420,8 +421,32 @@ body[data-bg="dusk"] .card-group {
 
 .card-content {
   align-self: center;
+  width: 100%;
   font-size: clamp(23px, 3.1vw, 42px);
   line-height: 1.48;
+  overflow-wrap: anywhere;
+}
+
+.card.showing-answer .card-content {
+  align-self: start;
+  font-size: clamp(18px, 2.1vw, 30px);
+}
+
+.anki-front,
+.anki-back {
+  width: 100%;
+}
+
+.anki-frontside {
+  color: var(--muted);
+  font-size: 0.86em;
+}
+
+.answer-divider {
+  width: 100%;
+  margin: 1.15em 0;
+  border: 0;
+  border-top: 1px solid var(--line);
 }
 
 .card-content ul,
@@ -447,6 +472,7 @@ body[data-bg="dusk"] .card-group {
 }
 
 .card-content mjx-container[display="true"] {
+  display: block;
   overflow-x: auto;
   overflow-y: hidden;
   padding: 0.3em 0;

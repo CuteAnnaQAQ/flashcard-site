@@ -11,8 +11,11 @@ const state = {
   progress: {},
   background: "aurora",
   touchStartX: 0,
-  touchStartY: 0
+  touchStartY: 0,
+  suppressNextFlip: false
 };
+
+let mathRenderToken = 0;
 
 const els = {
   fileInput: document.getElementById("file-input"),
@@ -83,9 +86,65 @@ function sanitizeHTML(html) {
 }
 
 function renderMath() {
-  if (!window.MathJax || !window.MathJax.typesetPromise) return;
-  window.MathJax.typesetClear?.([els.cardContent]);
-  window.MathJax.typesetPromise([els.cardContent]).catch(() => {});
+  const token = ++mathRenderToken;
+  const target = els.cardContent;
+
+  const typeset = () => {
+    if (token !== mathRenderToken || !window.MathJax?.typesetPromise) return;
+    window.MathJax.typesetClear?.([target]);
+    window.MathJax.typesetPromise([target]).catch(() => {});
+  };
+
+  if (window.MathJax?.startup?.promise) {
+    window.MathJax.startup.promise.then(typeset).catch(() => {});
+    return;
+  }
+
+  typeset();
+}
+
+function splitPipeRow(line) {
+  const parts = [];
+  let part = "";
+  let inCode = false;
+  let mathDelimiter = "";
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const next = line[index + 1];
+    const escaped = index > 0 && line[index - 1] === "\\";
+
+    if (char === "`" && !escaped && !mathDelimiter) {
+      inCode = !inCode;
+      part += char;
+      continue;
+    }
+
+    if (char === "$" && !escaped && !inCode) {
+      const delimiter = next === "$" ? "$$" : "$";
+      if (!mathDelimiter) {
+        mathDelimiter = delimiter;
+      } else if (mathDelimiter === delimiter) {
+        mathDelimiter = "";
+      }
+      part += delimiter;
+      if (delimiter === "$$") index += 1;
+      continue;
+    }
+
+    if (char === "|" && !escaped && !inCode && !mathDelimiter) {
+      parts.push(part.trim());
+      part = "";
+      continue;
+    }
+
+    part += char;
+  }
+
+  parts.push(part.trim());
+  if (parts[0] === "") parts.shift();
+  if (parts[parts.length - 1] === "") parts.pop();
+  return parts.length >= 2 ? parts : null;
 }
 
 function splitMarkdownRow(line) {
@@ -98,15 +157,8 @@ function splitMarkdownRow(line) {
     return parts.length >= 2 ? parts : null;
   }
 
-  if (trimmed.includes(" | ")) {
-    return trimmed.split(" | ").map((part) => part.trim());
-  }
-
-  if (trimmed.startsWith("|") && trimmed.endsWith("|")) {
-    return trimmed.slice(1, -1).split("|").map((part) => part.trim());
-  }
-
-  return null;
+  if (!trimmed.includes("|")) return null;
+  return splitPipeRow(trimmed);
 }
 
 function parseCards(markdown, deckName) {
@@ -312,26 +364,55 @@ function renderTags() {
     });
 }
 
+function renderCardHTML(card) {
+  const front = sanitizeHTML(card.front);
+  const back = sanitizeHTML(card.back);
+
+  if (!state.showingAnswer) {
+    return `<div class="anki-front">${front}</div>`;
+  }
+
+  return `
+    <div class="anki-front anki-frontside">${front}</div>
+    <hr id="answer" class="answer-divider">
+    <div class="anki-back">${back}</div>
+  `;
+}
+
 function renderCard() {
   const total = state.filtered.length;
   const card = state.filtered[state.index];
   els.deckTitle.textContent = state.activeDeck || "未加载卡片";
   els.deckMeta.textContent = `${total} cards${state.activeGroup ? ` · ${state.activeGroup}` : ""}${state.activeTag ? ` · ${state.activeTag}` : ""}`;
   els.progressFill.style.width = total ? `${((state.index + 1) / total) * 100}%` : "0%";
+  els.card.classList.toggle("showing-answer", Boolean(card && state.showingAnswer));
 
   if (!card) {
-    els.cardKicker.textContent = "Question";
+    els.cardKicker.textContent = "Front";
     els.cardGroup.textContent = "";
     els.cardContent.textContent = "选择或导入 Markdown 文件";
     els.flipButton.textContent = "显示答案";
     return;
   }
 
-  els.cardKicker.textContent = state.showingAnswer ? "Answer" : "Question";
+  els.cardKicker.textContent = state.showingAnswer ? "Back" : "Front";
   els.cardGroup.textContent = card.group || "";
-  els.cardContent.innerHTML = sanitizeHTML(state.showingAnswer ? card.back : card.front);
+  els.cardContent.innerHTML = renderCardHTML(card);
   els.flipButton.textContent = state.showingAnswer ? "显示问题" : "显示答案";
   renderMath();
+}
+
+function toggleAnswer() {
+  if (!state.filtered.length) return;
+  state.showingAnswer = !state.showingAnswer;
+  renderCard();
+}
+
+function suppressFlipOnce() {
+  state.suppressNextFlip = true;
+  window.setTimeout(() => {
+    state.suppressNextFlip = false;
+  }, 350);
 }
 
 function move(delta) {
@@ -365,10 +446,7 @@ els.reloadButton.addEventListener("click", loadRepositoryDecks);
 els.tagSearch.addEventListener("input", renderTags);
 els.prevButton.addEventListener("click", () => move(-1));
 els.nextButton.addEventListener("click", () => move(1));
-els.flipButton.addEventListener("click", () => {
-  state.showingAnswer = !state.showingAnswer;
-  renderCard();
-});
+els.flipButton.addEventListener("click", toggleAnswer);
 els.shuffleButton.addEventListener("click", shuffleCards);
 els.resetButton.addEventListener("click", () => {
   state.progress = {};
@@ -392,6 +470,7 @@ els.card.addEventListener("touchend", (event) => {
   const dx = touch.clientX - state.touchStartX;
   const dy = touch.clientY - state.touchStartY;
   if (Math.abs(dx) < 54 || Math.abs(dx) < Math.abs(dy) * 1.3) return;
+  suppressFlipOnce();
   move(dx < 0 ? 1 : -1);
 }, { passive: true });
 
@@ -406,15 +485,24 @@ els.card.addEventListener("pointerup", (event) => {
   const dx = event.clientX - state.touchStartX;
   const dy = event.clientY - state.touchStartY;
   if (Math.abs(dx) < 90 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
+  suppressFlipOnce();
   move(dx < 0 ? 1 : -1);
+});
+
+els.card.addEventListener("click", (event) => {
+  if (event.target.closest("a, button, input, textarea, select, label")) return;
+  if (state.suppressNextFlip) {
+    state.suppressNextFlip = false;
+    return;
+  }
+  toggleAnswer();
 });
 
 document.addEventListener("keydown", (event) => {
   if (event.target instanceof HTMLInputElement) return;
   if (event.key === " ") {
     event.preventDefault();
-    state.showingAnswer = !state.showingAnswer;
-    renderCard();
+    toggleAnswer();
   } else if (event.key === "ArrowRight") {
     move(1);
   } else if (event.key === "ArrowLeft") {
