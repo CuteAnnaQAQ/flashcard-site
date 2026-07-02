@@ -5,14 +5,19 @@ const state = {
   index: 0,
   showingAnswer: false,
   activeDeck: "",
+  activeGroup: "",
   activeTag: "",
-  progress: {}
+  progress: {},
+  background: "aurora",
+  touchStartX: 0,
+  touchStartY: 0
 };
 
 const els = {
   fileInput: document.getElementById("file-input"),
   reloadButton: document.getElementById("reload-button"),
   deckList: document.getElementById("deck-list"),
+  groupList: document.getElementById("group-list"),
   tagList: document.getElementById("tag-list"),
   tagSearch: document.getElementById("tag-search"),
   deckTitle: document.getElementById("deck-title"),
@@ -25,7 +30,9 @@ const els = {
   nextButton: document.getElementById("next-button"),
   flipButton: document.getElementById("flip-button"),
   shuffleButton: document.getElementById("shuffle-button"),
-  resetButton: document.getElementById("reset-button")
+  resetButton: document.getElementById("reset-button"),
+  cardGroup: document.getElementById("card-group"),
+  backgroundSwatches: document.querySelectorAll("[data-bg]")
 };
 
 function cardId(card) {
@@ -44,6 +51,20 @@ function saveProgress() {
   localStorage.setItem("deckfile-progress", JSON.stringify(state.progress));
 }
 
+function loadBackground() {
+  state.background = localStorage.getItem("deckfile-background") || "aurora";
+  document.body.dataset.bg = state.background;
+  els.backgroundSwatches.forEach((button) => {
+    button.classList.toggle("active", button.dataset.bg === state.background);
+  });
+}
+
+function setBackground(name) {
+  state.background = name;
+  localStorage.setItem("deckfile-background", name);
+  loadBackground();
+}
+
 function sanitizeHTML(html) {
   const template = document.createElement("template");
   template.innerHTML = html;
@@ -58,6 +79,12 @@ function sanitizeHTML(html) {
     });
   });
   return template.innerHTML;
+}
+
+function renderMath() {
+  if (!window.MathJax || !window.MathJax.typesetPromise) return;
+  window.MathJax.typesetClear?.([els.cardContent]);
+  window.MathJax.typesetPromise([els.cardContent]).catch(() => {});
 }
 
 function splitMarkdownRow(line) {
@@ -84,7 +111,7 @@ function splitMarkdownRow(line) {
 function parseCards(markdown, deckName) {
   const cards = [];
   const lines = markdown.replace(/\r\n/g, "\n").split("\n");
-  let currentSection = "";
+  let currentGroup = "未分组";
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
@@ -92,7 +119,7 @@ function parseCards(markdown, deckName) {
 
     const heading = line.match(/^#{1,6}\s+(.+)$/);
     if (heading) {
-      currentSection = heading[1].trim();
+      currentGroup = heading[1].trim();
       continue;
     }
 
@@ -104,16 +131,20 @@ function parseCards(markdown, deckName) {
 
     const front = parts[0] || "";
     const back = parts[1] || "";
-    const tags = (parts[2] || currentSection || deckName)
+    const tags = (parts[2] || currentGroup || deckName)
       .split(/\s+/)
       .map((tag) => tag.trim())
       .filter(Boolean);
 
     if (!front || !back) continue;
-    cards.push({ front, back, tags, deck: deckName });
+    cards.push({ front, back, tags, deck: deckName, group: currentGroup });
   }
 
   return cards;
+}
+
+function deckDisplayName(deck) {
+  return deck.name || deck.file.replace(/\\/g, "/").split("/").pop() || deck.file;
 }
 
 async function loadRepositoryDecks() {
@@ -128,9 +159,9 @@ async function loadRepositoryDecks() {
       if (!cardResponse.ok) continue;
       const text = await cardResponse.text();
       decks.push({
-        name: deck.name || deck.file,
+        name: deckDisplayName(deck),
         file: deck.file,
-        cards: parseCards(text, deck.name || deck.file)
+        cards: parseCards(text, deckDisplayName(deck))
       });
     }
 
@@ -148,7 +179,7 @@ async function importFiles(files) {
   for (const file of files) {
     const text = await file.text();
     const cards = parseCards(text, file.name.replace(/\.(md|markdown|txt|tsv)$/i, ""));
-    if (cards.length) imported.push({ name: file.name, file: file.name, cards });
+    if (cards.length) imported.push({ name: file.name, file: `本地/${file.name}`, cards });
   }
   state.decks = [...imported, ...state.decks.filter((deck) => !imported.some((item) => item.name === deck.name))];
   renderDeckList();
@@ -159,19 +190,23 @@ function selectDeck(name) {
   const deck = state.decks.find((item) => item.name === name);
   if (!deck) return;
   state.activeDeck = name;
+  state.activeGroup = "";
   state.activeTag = "";
   state.cards = deck.cards;
   state.index = 0;
   state.showingAnswer = false;
   applyFilter();
   renderDeckList();
+  renderGroups();
   renderTags();
 }
 
 function applyFilter() {
-  state.filtered = state.activeTag
-    ? state.cards.filter((card) => card.tags.includes(state.activeTag))
-    : [...state.cards];
+  state.filtered = state.cards.filter((card) => {
+    const groupMatch = state.activeGroup ? card.group === state.activeGroup : true;
+    const tagMatch = state.activeTag ? card.tags.includes(state.activeTag) : true;
+    return groupMatch && tagMatch;
+  });
   if (state.index >= state.filtered.length) state.index = 0;
   state.showingAnswer = false;
   renderCard();
@@ -187,12 +222,65 @@ function renderDeckList() {
     return;
   }
 
+  const root = {};
   state.decks.forEach((deck) => {
+    const segments = (deck.file || deck.name).replace(/\\/g, "/").split("/").filter(Boolean);
+    let node = root;
+    segments.forEach((segment, index) => {
+      node.children ||= {};
+      node.children[segment] ||= { label: segment, children: {} };
+      node = node.children[segment];
+      if (index === segments.length - 1) node.deck = deck;
+    });
+  });
+
+  renderTreeNode(root, els.deckList, 0);
+}
+
+function renderTreeNode(node, container, depth) {
+  Object.values(node.children || {}).forEach((child) => {
+    if (child.deck) {
+      const button = document.createElement("button");
+      button.className = `deck-item file-node${child.deck.name === state.activeDeck ? " active" : ""}`;
+      button.style.setProperty("--depth", depth);
+      button.innerHTML = `<span class="tree-label">${sanitizeHTML(child.deck.name)}</span><small>${child.deck.cards.length} cards</small>`;
+      button.addEventListener("click", () => selectDeck(child.deck.name));
+      container.appendChild(button);
+    } else {
+      const folder = document.createElement("div");
+      folder.className = "tree-folder";
+      folder.style.setProperty("--depth", depth);
+      folder.textContent = child.label;
+      container.appendChild(folder);
+      renderTreeNode(child, container, depth + 1);
+    }
+  });
+}
+
+function renderGroups() {
+  const counts = new Map();
+  state.cards.forEach((card) => counts.set(card.group, (counts.get(card.group) || 0) + 1));
+
+  els.groupList.innerHTML = "";
+  if (!counts.size) {
+    const empty = document.createElement("div");
+    empty.className = "muted-line";
+    empty.textContent = "未加载";
+    els.groupList.appendChild(empty);
+    return;
+  }
+
+  [...counts.entries()].forEach(([group, count]) => {
     const button = document.createElement("button");
-    button.className = `deck-item${deck.name === state.activeDeck ? " active" : ""}`;
-    button.innerHTML = `${sanitizeHTML(deck.name)}<small>${deck.cards.length} cards</small>`;
-    button.addEventListener("click", () => selectDeck(deck.name));
-    els.deckList.appendChild(button);
+    button.className = `group-chip${group === state.activeGroup ? " active" : ""}`;
+    button.textContent = `${group} · ${count}`;
+    button.addEventListener("click", () => {
+      state.activeGroup = state.activeGroup === group ? "" : group;
+      state.index = 0;
+      applyFilter();
+      renderGroups();
+    });
+    els.groupList.appendChild(button);
   });
 }
 
@@ -225,19 +313,22 @@ function renderCard() {
   const total = state.filtered.length;
   const card = state.filtered[state.index];
   els.deckTitle.textContent = state.activeDeck || "未加载卡片";
-  els.deckMeta.textContent = `${total} cards${state.activeTag ? ` · ${state.activeTag}` : ""}`;
+  els.deckMeta.textContent = `${total} cards${state.activeGroup ? ` · ${state.activeGroup}` : ""}${state.activeTag ? ` · ${state.activeTag}` : ""}`;
   els.progressFill.style.width = total ? `${((state.index + 1) / total) * 100}%` : "0%";
 
   if (!card) {
     els.cardKicker.textContent = "Question";
+    els.cardGroup.textContent = "";
     els.cardContent.textContent = "选择或导入 Markdown 文件";
     els.flipButton.textContent = "显示答案";
     return;
   }
 
   els.cardKicker.textContent = state.showingAnswer ? "Answer" : "Question";
+  els.cardGroup.textContent = card.group || "";
   els.cardContent.innerHTML = sanitizeHTML(state.showingAnswer ? card.back : card.front);
   els.flipButton.textContent = state.showingAnswer ? "显示问题" : "显示答案";
+  renderMath();
 }
 
 function move(delta) {
@@ -280,8 +371,39 @@ els.resetButton.addEventListener("click", () => {
   state.progress = {};
   saveProgress();
 });
+els.backgroundSwatches.forEach((button) => {
+  button.addEventListener("click", () => setBackground(button.dataset.bg));
+});
 document.querySelectorAll("[data-grade]").forEach((button) => {
   button.addEventListener("click", () => gradeCurrent(button.dataset.grade));
+});
+
+els.card.addEventListener("touchstart", (event) => {
+  const touch = event.changedTouches[0];
+  state.touchStartX = touch.clientX;
+  state.touchStartY = touch.clientY;
+}, { passive: true });
+
+els.card.addEventListener("touchend", (event) => {
+  const touch = event.changedTouches[0];
+  const dx = touch.clientX - state.touchStartX;
+  const dy = touch.clientY - state.touchStartY;
+  if (Math.abs(dx) < 54 || Math.abs(dx) < Math.abs(dy) * 1.3) return;
+  move(dx < 0 ? 1 : -1);
+}, { passive: true });
+
+els.card.addEventListener("pointerdown", (event) => {
+  if (event.pointerType !== "mouse") return;
+  state.touchStartX = event.clientX;
+  state.touchStartY = event.clientY;
+});
+
+els.card.addEventListener("pointerup", (event) => {
+  if (event.pointerType !== "mouse") return;
+  const dx = event.clientX - state.touchStartX;
+  const dy = event.clientY - state.touchStartY;
+  if (Math.abs(dx) < 90 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
+  move(dx < 0 ? 1 : -1);
 });
 
 document.addEventListener("keydown", (event) => {
@@ -303,5 +425,8 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+window.addEventListener("mathjax-ready", renderMath);
+
 loadProgress();
+loadBackground();
 loadRepositoryDecks();

@@ -5,6 +5,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Markdown Flashcards</title>
     <link rel="stylesheet" href="styles.css">
+    <script>
+      window.MathJax = {
+        tex: {
+          inlineMath: [["$", "$"], ["\\(", "\\)"]],
+          displayMath: [["$$", "$$"], ["\\[", "\\]"]],
+          processEscapes: true
+        },
+        options: {
+          skipHtmlTags: ["script", "noscript", "style", "textarea", "pre", "code"]
+        },
+        startup: {
+          pageReady() {
+            return MathJax.startup.defaultPageReady().then(() => {
+              window.dispatchEvent(new Event("mathjax-ready"));
+            });
+          }
+        }
+      };
+    </script>
+    <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+    <script defer src="app.js"></script>
   </head>
   <body>
     <div class="shell">
@@ -12,7 +33,7 @@
         <div class="brand">
           <img src="assets/mark.svg" alt="" class="brand-mark">
           <div>
-            <div class="brand-name">Deckfile</div>
+            <div class="brand-name">LazyCards</div>
             <div class="brand-subtitle">Markdown cards</div>
           </div>
         </div>
@@ -26,14 +47,29 @@
         </div>
 
         <div class="deck-panel">
-          <div class="panel-title">牌组</div>
+          <div class="panel-title">文件树</div>
           <div id="deck-list" class="deck-list"></div>
+        </div>
+
+        <div class="deck-panel">
+          <div class="panel-title">小分组</div>
+          <div id="group-list" class="group-list"></div>
         </div>
 
         <div class="deck-panel">
           <div class="panel-title">标签</div>
           <input id="tag-search" class="search-input" type="search" placeholder="筛选标签">
           <div id="tag-list" class="tag-list"></div>
+        </div>
+
+        <div class="deck-panel">
+          <div class="panel-title">背景</div>
+          <div class="background-grid">
+            <button class="background-swatch active" data-bg="aurora" title="粉紫"></button>
+            <button class="background-swatch" data-bg="pearl" title="珍珠"></button>
+            <button class="background-swatch" data-bg="dusk" title="暮色"></button>
+            <button class="background-swatch" data-bg="mint" title="薄荷"></button>
+          </div>
         </div>
       </aside>
 
@@ -57,6 +93,7 @@
           <article id="card" class="card" tabindex="0">
             <div class="card-face">
               <div class="card-kicker" id="card-kicker">Question</div>
+              <div class="card-group" id="card-group"></div>
               <div class="card-content" id="card-content">选择或导入 Markdown 文件</div>
             </div>
           </article>
@@ -76,6 +113,5 @@
       </main>
     </div>
 
-    <script src="app.js"></script>
   </body>
 </html>

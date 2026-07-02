@@ -2,11 +2,11 @@
   "decks": [
     {
       "name": "高数 概率论 线性代数",
-      "file": "math-ko.md"
+      "file": "math/math-ko.md"
     },
     {
       "name": "数学示例",
-      "file": "math-demo.md"
+      "file": "demo/math-demo.md"
     }
   ]
 }
