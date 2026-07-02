@@ -5,6 +5,7 @@ const state = {
   index: 0,
   showingAnswer: false,
   activeDeck: "",
+  activeDeckId: "",
   activeGroup: "",
   activeTag: "",
   progress: {},
@@ -159,6 +160,7 @@ async function loadRepositoryDecks() {
       if (!cardResponse.ok) continue;
       const text = await cardResponse.text();
       decks.push({
+        id: deck.file,
         name: deckDisplayName(deck),
         file: deck.file,
         cards: parseCards(text, deckDisplayName(deck))
@@ -167,7 +169,7 @@ async function loadRepositoryDecks() {
 
     state.decks = decks.filter((deck) => deck.cards.length);
     renderDeckList();
-    if (state.decks.length) selectDeck(state.decks[0].name);
+    if (state.decks.length) selectDeck(state.decks[0].id);
   } catch {
     renderDeckList();
     renderCard();
@@ -179,17 +181,18 @@ async function importFiles(files) {
   for (const file of files) {
     const text = await file.text();
     const cards = parseCards(text, file.name.replace(/\.(md|markdown|txt|tsv)$/i, ""));
-    if (cards.length) imported.push({ name: file.name, file: `本地/${file.name}`, cards });
+    if (cards.length) imported.push({ id: `local/${file.name}/${file.size}/${file.lastModified}`, name: file.name, file: `本地/${file.name}`, cards });
   }
-  state.decks = [...imported, ...state.decks.filter((deck) => !imported.some((item) => item.name === deck.name))];
+  state.decks = [...imported, ...state.decks.filter((deck) => !imported.some((item) => item.id === deck.id))];
   renderDeckList();
-  if (imported.length) selectDeck(imported[0].name);
+  if (imported.length) selectDeck(imported[0].id);
 }
 
-function selectDeck(name) {
-  const deck = state.decks.find((item) => item.name === name);
+function selectDeck(id) {
+  const deck = state.decks.find((item) => item.id === id);
   if (!deck) return;
-  state.activeDeck = name;
+  state.activeDeck = deck.name;
+  state.activeDeckId = deck.id;
   state.activeGroup = "";
   state.activeTag = "";
   state.cards = deck.cards;
@@ -241,10 +244,10 @@ function renderTreeNode(node, container, depth) {
   Object.values(node.children || {}).forEach((child) => {
     if (child.deck) {
       const button = document.createElement("button");
-      button.className = `deck-item file-node${child.deck.name === state.activeDeck ? " active" : ""}`;
+      button.className = `deck-item file-node${child.deck.id === state.activeDeckId ? " active" : ""}`;
       button.style.setProperty("--depth", depth);
       button.innerHTML = `<span class="tree-label">${sanitizeHTML(child.deck.name)}</span><small>${child.deck.cards.length} cards</small>`;
-      button.addEventListener("click", () => selectDeck(child.deck.name));
+      button.addEventListener("click", () => selectDeck(child.deck.id));
       container.appendChild(button);
     } else {
       const folder = document.createElement("div");
