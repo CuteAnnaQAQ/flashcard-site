@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Markdown Flashcards</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <img src="assets/mark.svg" alt="" class="brand-mark">
+          <div>
+            <div class="brand-name">Deckfile</div>
+            <div class="brand-subtitle">Markdown cards</div>
+          </div>
+        </div>
+
+        <div class="sidebar-actions">
+          <label class="import-button" title="导入本地 Markdown">
+            <input id="file-input" type="file" accept=".md,.markdown,.txt,.tsv" multiple>
+            导入
+          </label>
+          <button id="reload-button" class="icon-button" title="重新读取仓库卡片">↻</button>
+        </div>
+
+        <div class="deck-panel">
+          <div class="panel-title">牌组</div>
+          <div id="deck-list" class="deck-list"></div>
+        </div>
+
+        <div class="deck-panel">
+          <div class="panel-title">标签</div>
+          <input id="tag-search" class="search-input" type="search" placeholder="筛选标签">
+          <div id="tag-list" class="tag-list"></div>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <div id="deck-title" class="deck-title">未加载卡片</div>
+            <div id="deck-meta" class="deck-meta">0 cards</div>
+          </div>
+          <div class="toolbar">
+            <button id="shuffle-button" class="tool-button" title="洗牌">⇄</button>
+            <button id="reset-button" class="tool-button" title="重置进度">⟲</button>
+          </div>
+        </header>
+
+        <section class="study-area" aria-live="polite">
+          <div class="progress-strip">
+            <div id="progress-fill" class="progress-fill"></div>
+          </div>
+
+          <article id="card" class="card" tabindex="0">
+            <div class="card-face">
+              <div class="card-kicker" id="card-kicker">Question</div>
+              <div class="card-content" id="card-content">选择或导入 Markdown 文件</div>
+            </div>
+          </article>
+
+          <div class="answer-actions">
+            <button id="prev-button" class="nav-button" title="上一张">←</button>
+            <button id="flip-button" class="flip-button">显示答案</button>
+            <button id="next-button" class="nav-button" title="下一张">→</button>
+          </div>
+
+          <div class="grade-row">
+            <button data-grade="again" class="grade-button again">重来</button>
+            <button data-grade="hard" class="grade-button hard">模糊</button>
+            <button data-grade="good" class="grade-button good">记住</button>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
