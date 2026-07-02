@@ -10,4 +10,10 @@
 
 问题 | 答案 | 标签
 <b>贝叶斯定理</b>的 LaTeX 写法？ | $P(A\mid B)=\frac{P(B\mid A)P(A)}{P(B)}$ | 数学::概率论::贝叶斯定理::公式
-正态分布密度函数的 LaTeX 写法？ | $$f(x)=\frac{1}{\sigma\sqrt{2\pi}}e^{-\frac{(x-\mu)^2}{2\sigma^2}},\quad \sigma>0$$ | 数学::概率论::正态分布::公式
+正态分布密度函数的 LaTeX 写法？ | 
+
+$$
+f(x)=\frac{1}{\sigma\sqrt{2\pi}}e^{-\frac{(x-\mu)^2}{2\sigma^2}},\quad \sigma>0
+$$
+
+ | 数学::概率论::正态分布::公式
