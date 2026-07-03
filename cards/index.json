@@ -5,12 +5,16 @@
       "file": "ds-algo/ds-algo-ko.md"
     },
     {
-      "name": "高数 概率论 线性代数",
+      "name": "概率论",
       "file": "math/math-ko.md"
     },
     {
       "name": "数学示例",
       "file": "demo/math-demo.md"
+    },
+    {
+      "name": "经典问题",
+      "file": "ds-algo/template_problem.md"
     }
   ]
 }
