@@ -737,7 +737,7 @@ body.sidebar-collapsed .study-area {
   outline: none;
   overflow: hidden;
   backdrop-filter: blur(18px);
-  touch-action: pan-y;
+  touch-action: pan-x pan-y;
   user-select: none;
   cursor: pointer;
 }
@@ -880,6 +880,7 @@ body[data-bg="dusk"] .card-group {
   margin: 0.7em 0;
   padding: 0.85em;
   overflow-x: auto;
+  overscroll-behavior-inline: contain;
   border: 1px solid var(--line);
   border-radius: var(--radius-small);
   background: rgba(255, 255, 255, 0.54);
@@ -888,6 +889,30 @@ body[data-bg="dusk"] .card-group {
   line-height: 1.45;
   text-align: left;
   user-select: text;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(217, 48, 150, 0.36) rgba(255, 255, 255, 0.38);
+  touch-action: pan-x pan-y;
+  -webkit-overflow-scrolling: touch;
+  cursor: grab;
+}
+
+.card-content pre.is-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.card-content pre::-webkit-scrollbar {
+  height: 8px;
+}
+
+.card-content pre::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.34);
+}
+
+.card-content pre::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255, 98, 184, 0.68), rgba(143, 107, 255, 0.68));
 }
 
 .card-content pre[data-lang] {

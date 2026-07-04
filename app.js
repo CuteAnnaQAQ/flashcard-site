@@ -19,6 +19,7 @@ const state = {
   collapsedNodes: {},
   touchStartX: 0,
   touchStartY: 0,
+  codeScroll: null,
   suppressNextFlip: false
 };
 
@@ -474,9 +475,10 @@ function formatMarkdownCell(value) {
 
   const flushCode = () => {
     const language = normalizeCodeLanguage(codeLanguage);
-    const preAttribute = language ? ` data-lang="${escapeAttribute(codeLanguage.trim())}"` : "";
+    const preAttributes = [`class="code-card"`, `tabindex="0"`];
+    if (language) preAttributes.push(`data-lang="${escapeAttribute(codeLanguage.trim())}"`);
     const codeAttribute = language ? ` class="language-${language}"` : "";
-    output.push(`<pre${preAttribute}><code${codeAttribute}>${escapeHTML(codeLines.join("\n"))}</code></pre>`);
+    output.push(`<pre ${preAttributes.join(" ")}><code${codeAttribute}>${escapeHTML(codeLines.join("\n"))}</code></pre>`);
     codeLines = [];
     codeLanguage = "";
   };
@@ -1005,6 +1007,57 @@ function suppressFlipOnce() {
   }, 350);
 }
 
+function codeBlockFromEvent(event) {
+  const target = event.target;
+  return target instanceof Element ? target.closest(".card-content pre") : null;
+}
+
+function stopCodeBlockTouch(event) {
+  if (codeBlockFromEvent(event)) event.stopPropagation();
+}
+
+function beginCodeBlockScroll(event) {
+  const block = codeBlockFromEvent(event);
+  if (!block || event.pointerType !== "mouse" || event.button !== 0) return;
+  event.stopPropagation();
+  state.codeScroll = {
+    block,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    scrollLeft: block.scrollLeft,
+    moved: false
+  };
+  block.classList.add("is-dragging");
+  block.setPointerCapture?.(event.pointerId);
+}
+
+function updateCodeBlockScroll(event) {
+  const active = state.codeScroll;
+  if (!active || active.pointerId !== event.pointerId) return;
+  event.stopPropagation();
+
+  const dx = event.clientX - active.startX;
+  const dy = event.clientY - active.startY;
+  if (Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+
+  if (Math.abs(dx) >= Math.abs(dy) * 0.65 || active.moved) {
+    active.moved = true;
+    active.block.scrollLeft = active.scrollLeft - dx;
+    if (event.cancelable) event.preventDefault();
+  }
+}
+
+function endCodeBlockScroll(event) {
+  const active = state.codeScroll;
+  if (!active || active.pointerId !== event.pointerId) return;
+  event.stopPropagation();
+  if (active.moved) suppressFlipOnce();
+  active.block.classList.remove("is-dragging");
+  active.block.releasePointerCapture?.(event.pointerId);
+  state.codeScroll = null;
+}
+
 function move(delta) {
   if (!state.filtered.length) return;
   state.index = (state.index + delta + state.filtered.length) % state.filtered.length;
@@ -1119,6 +1172,14 @@ document.querySelectorAll("[data-grade]").forEach((button) => {
   button.addEventListener("click", () => gradeCurrent(button.dataset.grade));
 });
 
+els.cardContent.addEventListener("pointerdown", beginCodeBlockScroll);
+els.cardContent.addEventListener("pointermove", updateCodeBlockScroll);
+els.cardContent.addEventListener("pointerup", endCodeBlockScroll);
+els.cardContent.addEventListener("pointercancel", endCodeBlockScroll);
+["touchstart", "touchmove", "touchend", "touchcancel"].forEach((eventName) => {
+  els.cardContent.addEventListener(eventName, stopCodeBlockTouch, { passive: true });
+});
+
 els.card.addEventListener("touchstart", (event) => {
   const touch = event.changedTouches[0];
   state.touchStartX = touch.clientX;
@@ -1150,6 +1211,7 @@ els.card.addEventListener("pointerup", (event) => {
 });
 
 els.card.addEventListener("click", (event) => {
+  if (codeBlockFromEvent(event)) return;
   if (event.target.closest("a, button, input, textarea, select, label")) return;
   if (state.suppressNextFlip) {
     state.suppressNextFlip = false;
@@ -1159,6 +1221,7 @@ els.card.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
+  if (codeBlockFromEvent(event)) return;
   if (event.target instanceof HTMLInputElement) return;
   if (event.key === " ") {
     event.preventDefault();
