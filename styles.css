@@ -725,6 +725,7 @@ body.sidebar-collapsed .study-area {
 }
 
 .card {
+  position: relative;
   min-height: 410px;
   display: grid;
   border: 1px solid rgba(255, 255, 255, 0.48);
@@ -743,6 +744,52 @@ body.sidebar-collapsed .study-area {
 
 .card:focus-visible {
   border-color: var(--accent);
+}
+
+.card-delete-button {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 3;
+  width: 36px;
+  height: 36px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.48);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.58);
+  color: var(--bad);
+  box-shadow: 0 10px 24px rgba(95, 54, 115, 0.16);
+  font-family: "Trebuchet MS", "Noto Sans SC", sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  transition:
+    transform 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.card-delete-button:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 14px 28px rgba(217, 48, 150, 0.18);
+}
+
+.card-delete-button:focus-visible {
+  outline: 2px solid rgba(217, 48, 150, 0.36);
+  outline-offset: 2px;
+}
+
+.card-delete-button[hidden] {
+  display: none;
+}
+
+.card-delete-button:disabled {
+  pointer-events: none;
+  opacity: 0;
 }
 
 .card-face {
@@ -818,13 +865,17 @@ body[data-bg="dusk"] .card-group {
 
 .card-content code {
   padding: 0.08em 0.28em;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(120, 77, 122, 0.12);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.58);
+  color: #7d286e;
   font-family: Consolas, "Courier New", monospace;
   font-size: 0.82em;
+  white-space: break-spaces;
 }
 
 .card-content pre {
+  position: relative;
   max-width: 100%;
   margin: 0.7em 0;
   padding: 0.85em;
@@ -839,11 +890,30 @@ body[data-bg="dusk"] .card-group {
   user-select: text;
 }
 
+.card-content pre[data-lang] {
+  padding-top: 1.95em;
+}
+
+.card-content pre[data-lang]::before {
+  content: attr(data-lang);
+  position: absolute;
+  top: 0.42em;
+  right: 0.65em;
+  color: var(--muted);
+  font-family: "Trebuchet MS", "Noto Sans SC", sans-serif;
+  font-size: 0.58em;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
 .card-content pre code {
   padding: 0;
+  border: 0;
   border-radius: 0;
   background: transparent;
+  color: inherit;
   font-size: inherit;
+  white-space: pre;
 }
 
 .card-content span[style*="background-color"] {
@@ -1015,6 +1085,14 @@ body[data-bg="dusk"] .card-group {
   .card {
     min-height: 300px;
     border-radius: 24px;
+  }
+
+  .card-delete-button {
+    top: 12px;
+    right: 12px;
+    width: 34px;
+    height: 34px;
+    font-size: 20px;
   }
 
   .card-face {

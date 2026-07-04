@@ -11,6 +11,7 @@ const state = {
   activePathLabel: "",
   studyMode: "due",
   progress: {},
+  deletedCards: {},
   background: "aurora",
   sidebarCollapsed: false,
   sidebarWidth: 320,
@@ -39,6 +40,7 @@ const els = {
   cardKicker: document.getElementById("card-kicker"),
   cardContent: document.getElementById("card-content"),
   cardStats: document.getElementById("card-stats"),
+  deleteButton: document.getElementById("delete-card-button"),
   prevButton: document.getElementById("prev-button"),
   nextButton: document.getElementById("next-button"),
   flipButton: document.getElementById("flip-button"),
@@ -71,6 +73,22 @@ function loadProgress() {
 
 function saveProgress() {
   localStorage.setItem("deckfile-progress", JSON.stringify(state.progress));
+}
+
+function loadDeletedCards() {
+  try {
+    state.deletedCards = JSON.parse(localStorage.getItem("deckfile-deleted-cards") || "{}");
+  } catch {
+    state.deletedCards = {};
+  }
+}
+
+function saveDeletedCards() {
+  localStorage.setItem("deckfile-deleted-cards", JSON.stringify(state.deletedCards));
+}
+
+function isDeletedCard(card) {
+  return Boolean(state.deletedCards[cardId(card)]);
 }
 
 function normalizeRecord(record) {
@@ -368,9 +386,72 @@ function escapeHTML(text) {
     .replace(/>/g, "&gt;");
 }
 
+function escapeAttribute(text) {
+  return escapeHTML(text).replace(/"/g, "&quot;");
+}
+
+function normalizeCodeLanguage(value) {
+  const key = String(value || "").trim().toLowerCase().replace(/^language-/, "");
+  const aliases = {
+    "c++": "cpp",
+    "c#": "csharp",
+    js: "javascript",
+    py: "python"
+  };
+  return (aliases[key] || key).replace(/[^a-z0-9_-]/g, "");
+}
+
+function renderInlineCode(text) {
+  const source = String(text || "");
+  let output = "";
+  let index = 0;
+  let code = "";
+  let inCode = false;
+  let mathDelimiter = "";
+
+  while (index < source.length) {
+    const char = source[index];
+    const next = source[index + 1];
+    const escaped = index > 0 && source[index - 1] === "\\";
+
+    if (char === "$" && !escaped && !inCode) {
+      const delimiter = next === "$" ? "$$" : "$";
+      if (!mathDelimiter) {
+        mathDelimiter = delimiter;
+      } else if (mathDelimiter === delimiter) {
+        mathDelimiter = "";
+      }
+      output += delimiter;
+      index += delimiter === "$$" ? 2 : 1;
+      continue;
+    }
+
+    if (char === "`" && !escaped && !mathDelimiter) {
+      if (inCode) {
+        output += `<code>${escapeHTML(code)}</code>`;
+        code = "";
+      }
+      inCode = !inCode;
+      index += 1;
+      continue;
+    }
+
+    if (inCode) {
+      code += char;
+    } else {
+      output += char;
+    }
+    index += 1;
+  }
+
+  if (inCode) output += `\`${code}`;
+  return output.replace(/\\`/g, "`");
+}
+
 function renderInlineLines(lines) {
   return lines
     .map((line) => line.trimEnd())
+    .map(renderInlineCode)
     .join("<br>")
     .replace(/(?:<br>){3,}/g, "<br><br>")
     .replace(/^(?:<br>)+|(?:<br>)+$/g, "")
@@ -383,6 +464,7 @@ function formatMarkdownCell(value) {
   let textLines = [];
   let codeLines = [];
   let inFence = false;
+  let codeLanguage = "";
 
   const flushText = () => {
     const text = renderInlineLines(textLines);
@@ -391,17 +473,23 @@ function formatMarkdownCell(value) {
   };
 
   const flushCode = () => {
-    output.push(`<pre><code>${escapeHTML(codeLines.join("\n"))}</code></pre>`);
+    const language = normalizeCodeLanguage(codeLanguage);
+    const preAttribute = language ? ` data-lang="${escapeAttribute(codeLanguage.trim())}"` : "";
+    const codeAttribute = language ? ` class="language-${language}"` : "";
+    output.push(`<pre${preAttribute}><code${codeAttribute}>${escapeHTML(codeLines.join("\n"))}</code></pre>`);
     codeLines = [];
+    codeLanguage = "";
   };
 
   lines.forEach((line) => {
-    if (/^\s*```/.test(line)) {
+    const fence = line.match(/^\s*```\s*([^`]*)$/);
+    if (fence) {
       if (inFence) {
         flushCode();
         inFence = false;
       } else {
         flushText();
+        codeLanguage = fence[1] || "";
         inFence = true;
       }
       return;
@@ -544,7 +632,12 @@ async function loadRepositoryDecks() {
 
     state.decks = decks.filter((deck) => deck.cards.length);
     renderDeckList();
-    if (state.decks.length) selectStudyNode(state.decks[0].id);
+    const firstDeck = state.decks.find((deck) => cardsForScope(deck.id).length);
+    if (firstDeck) {
+      selectStudyNode(firstDeck.id);
+    } else {
+      renderCard();
+    }
   } catch {
     renderDeckList();
     renderCard();
@@ -580,7 +673,7 @@ function pathMatches(card, pathKey) {
 function cardsForScope(deckId, pathKey = "") {
   const deck = state.decks.find((item) => item.id === deckId);
   if (!deck) return [];
-  return deck.cards.filter((card) => pathMatches(card, pathKey));
+  return deck.cards.filter((card) => !isDeletedCard(card) && pathMatches(card, pathKey));
 }
 
 function filteredByStudyMode(cards) {
@@ -652,6 +745,9 @@ function buildDeckTree() {
   const root = createTreeNode("root", "root", { nodeKey: "root" });
 
   state.decks.forEach((deck) => {
+    const visibleCards = deck.cards.filter((card) => !isDeletedCard(card));
+    if (!visibleCards.length) return;
+
     const segments = (deck.file || deck.name).replace(/\\/g, "/").split("/").filter(Boolean);
     const folders = segments.length > 1 ? segments.slice(0, -1) : [];
     let parent = root;
@@ -666,7 +762,7 @@ function buildDeckTree() {
       labelPath: ""
     });
 
-    deck.cards.forEach((card) => {
+    visibleCards.forEach((card) => {
       let scopeParent = deckNode;
       const pathParts = [];
 
@@ -723,16 +819,17 @@ function selectAdjacentStudyNode(delta) {
 
 function renderDeckList() {
   els.deckList.innerHTML = "";
-  if (!state.decks.length) {
+  const tree = buildDeckTree();
+  if (!tree.children.length) {
     const empty = document.createElement("div");
     empty.className = "deck-item";
-    empty.textContent = "cards/index.json";
+    empty.textContent = state.decks.length ? "当前没有可复习的卡片" : "cards/index.json";
     els.deckList.appendChild(empty);
     updateGroupButtons();
     return;
   }
 
-  renderTreeNode(buildDeckTree(), els.deckList, 0);
+  renderTreeNode(tree, els.deckList, 0);
   updateGroupButtons();
 }
 
@@ -867,9 +964,13 @@ function renderCard() {
     els.cardContent.textContent = state.decks.length ? "切换到“全部”查看已安排的卡片" : "选择 Markdown 卡片";
     els.cardStats.textContent = "";
     els.flipButton.textContent = "显示答案";
+    els.deleteButton.hidden = true;
+    els.deleteButton.disabled = true;
     return;
   }
 
+  els.deleteButton.hidden = false;
+  els.deleteButton.disabled = false;
   els.cardKicker.textContent = state.showingAnswer ? "Back" : "Front";
   els.cardGroup.textContent = card.group || "";
   els.cardContent.innerHTML = renderCardHTML(card);
@@ -950,6 +1051,32 @@ function gradeCurrent(grade) {
   }
 }
 
+function deleteCurrentCard() {
+  const card = state.filtered[state.index];
+  if (!card) return;
+  const confirmed = window.confirm("确定从复习中删除这张卡片？删除记录只保存在当前浏览器，不会改动 Markdown 文件。");
+  if (!confirmed) return;
+
+  const id = cardId(card);
+  state.deletedCards[id] = {
+    deletedAt: new Date().toISOString(),
+    deckId: card.deckId,
+    pathKey: card.pathKey || "",
+    front: card.front
+  };
+  delete state.progress[id];
+  saveDeletedCards();
+  saveProgress();
+
+  state.cards = cardsForScope(state.activeDeckId, state.activePathKey);
+  state.filtered = state.filtered.filter((item) => cardId(item) !== id && !isDeletedCard(item));
+  if (state.index >= state.filtered.length) state.index = Math.max(0, state.filtered.length - 1);
+  state.showingAnswer = false;
+  renderDeckList();
+  renderCard();
+  renderReviewSummary();
+}
+
 function nextIntervalDays(grade, previous) {
   if (grade === "again") return 0;
   if (grade === "hard") return Math.max(1, Math.ceil((previous?.intervalDays || 0.5) * 1.4));
@@ -967,6 +1094,10 @@ window.addEventListener("resize", () => setSidebarWidth(state.sidebarWidth));
 els.prevButton.addEventListener("click", () => move(-1));
 els.nextButton.addEventListener("click", () => move(1));
 els.flipButton.addEventListener("click", toggleAnswer);
+els.deleteButton.addEventListener("click", (event) => {
+  event.stopPropagation();
+  deleteCurrentCard();
+});
 els.prevGroupButton?.addEventListener("click", () => selectAdjacentStudyNode(-1));
 els.nextGroupButton?.addEventListener("click", () => selectAdjacentStudyNode(1));
 els.shuffleButton.addEventListener("click", shuffleCards);
@@ -1048,6 +1179,7 @@ document.addEventListener("keydown", (event) => {
 window.addEventListener("mathjax-ready", renderMath);
 
 loadProgress();
+loadDeletedCards();
 loadBackground();
 loadLayoutState();
 loadRepositoryDecks();
