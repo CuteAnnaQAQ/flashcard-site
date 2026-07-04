@@ -233,7 +233,7 @@ function saveCollapsedNodes() {
   localStorage.setItem("deckfile-collapsed-nodes", JSON.stringify(state.collapsedNodes));
 }
 
-function toggleTreeNode(nodeKey, row, childrenWrap, toggle) {
+function toggleTreeNode(nodeKey, row, childrenWrap, control) {
   const collapsed = !state.collapsedNodes[nodeKey];
   if (collapsed) {
     state.collapsedNodes[nodeKey] = true;
@@ -250,9 +250,9 @@ function toggleTreeNode(nodeKey, row, childrenWrap, toggle) {
   row.classList.toggle("collapsed", collapsed);
   childrenWrap.classList.toggle("collapsed", collapsed);
   childrenWrap.setAttribute("aria-hidden", String(collapsed));
-  if (toggle) {
-    toggle.textContent = collapsed ? "›" : "⌄";
-    toggle.title = collapsed ? "展开" : "折叠";
+  if (control) {
+    control.setAttribute("aria-expanded", String(!collapsed));
+    control.title = collapsed ? "展开" : "折叠";
   }
 }
 
@@ -752,19 +752,6 @@ function renderTreeNode(node, container, depth) {
     childrenWrap.className = `tree-children${collapsed ? " collapsed" : ""}`;
     childrenWrap.setAttribute("aria-hidden", String(collapsed));
 
-    const toggle = document.createElement("button");
-    toggle.className = `tree-toggle${hasChildren ? "" : " empty"}`;
-    toggle.type = "button";
-    toggle.textContent = hasChildren ? (collapsed ? "›" : "⌄") : "";
-    toggle.title = hasChildren ? (collapsed ? "展开" : "折叠") : "";
-    if (hasChildren) {
-      toggle.addEventListener("click", (event) => {
-        event.stopPropagation();
-        toggleTreeNode(child.nodeKey, row, childrenWrap, toggle);
-      });
-    }
-    row.appendChild(toggle);
-
     if (child.type === "scope") {
       const cards = cardsForScope(child.deckId, child.pathKey);
       const counts = reviewCounts(cards);
@@ -782,7 +769,14 @@ function renderTreeNode(node, container, depth) {
           <span class="tree-count total">总 ${counts.total}</span>
         </span>
       `;
-      button.addEventListener("click", () => selectStudyNode(child.deckId, child.pathKey, child.labelPath));
+      if (hasChildren) {
+        button.setAttribute("aria-expanded", String(!collapsed));
+        button.title = collapsed ? "展开并复习此章节" : "折叠并复习此章节";
+      }
+      button.addEventListener("click", () => {
+        if (hasChildren) toggleTreeNode(child.nodeKey, row, childrenWrap, button);
+        selectStudyNode(child.deckId, child.pathKey, child.labelPath);
+      });
       row.appendChild(button);
       branch.appendChild(row);
       if (hasChildren) {
@@ -797,8 +791,12 @@ function renderTreeNode(node, container, depth) {
     folder.className = "tree-folder";
     folder.type = "button";
     folder.innerHTML = `<span class="tree-folder-name">${sanitizeHTML(child.label)}</span>`;
+    if (hasChildren) {
+      folder.setAttribute("aria-expanded", String(!collapsed));
+      folder.title = collapsed ? "展开" : "折叠";
+    }
     folder.addEventListener("click", () => {
-      if (hasChildren) toggleTreeNode(child.nodeKey, row, childrenWrap, toggle);
+      if (hasChildren) toggleTreeNode(child.nodeKey, row, childrenWrap, folder);
     });
     row.appendChild(folder);
     branch.appendChild(row);

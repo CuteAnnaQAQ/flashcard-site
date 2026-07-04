@@ -379,9 +379,9 @@ body.sidebar-collapsed .sidebar-resizer {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 1px;
+  gap: 0;
   min-height: 32px;
-  padding: 0 3px 0 calc(var(--depth) * 15px + 3px);
+  padding: 0 3px 0 calc(var(--depth) * 15px + 7px);
   border-radius: 9px;
   transition: background 160ms ease;
 }
@@ -389,7 +389,7 @@ body.sidebar-collapsed .sidebar-resizer {
 .tree-row::before {
   content: "";
   position: absolute;
-  left: calc(var(--depth) * 15px + 12px);
+  left: calc(var(--depth) * 15px + 4px);
   top: 0;
   bottom: 0;
   width: 1px;
@@ -415,36 +415,6 @@ body.sidebar-collapsed .sidebar-resizer {
   opacity: 0;
   transform: translateY(-4px);
   pointer-events: none;
-}
-
-.tree-toggle {
-  position: relative;
-  z-index: 1;
-  flex: 0 0 18px;
-  width: 18px;
-  height: 28px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--accent);
-  font-family: "Trebuchet MS", "Noto Sans SC", sans-serif;
-  font-size: 16px;
-  line-height: 1;
-  display: inline-grid;
-  place-items: center;
-  transition: background 150ms ease, color 150ms ease, transform 190ms ease;
-}
-
-.tree-row:not(.collapsed) .tree-toggle:not(.empty) {
-  transform: rotate(0deg);
-}
-
-.tree-row.collapsed .tree-toggle:not(.empty) {
-  transform: translateX(1px);
-}
-
-.tree-toggle.empty {
-  cursor: default;
 }
 
 .tree-folder {
@@ -477,8 +447,7 @@ body.sidebar-collapsed .sidebar-resizer {
   color: var(--accent);
 }
 
-.folder-row:hover .tree-folder,
-.folder-row:hover .tree-toggle {
+.folder-row:hover .tree-folder {
   background: rgba(255, 255, 255, 0.3);
 }
 
