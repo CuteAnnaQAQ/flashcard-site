@@ -1,20 +1,24 @@
 {
   "decks": [
     {
-      "name": "数据结构与算法",
-      "file": "ds-algo/ds-algo-ko.md"
+      "name": "经典问题",
+      "file": "数据结构与算法/经典问题.md"
+    },
+    {
+      "name": "数据结构",
+      "file": "数据结构与算法/数据结构.md"
+    },
+    {
+      "name": "算法",
+      "file": "数据结构与算法/算法.md"
     },
     {
       "name": "概率论",
-      "file": "math/math-ko.md"
+      "file": "数学/概率论.md"
     },
     {
-      "name": "数学示例",
-      "file": "demo/math-demo.md"
-    },
-    {
-      "name": "经典问题",
-      "file": "ds-algo/template_problem.md"
+      "name": "线性代数",
+      "file": "数学/线性代数.md"
     }
   ]
 }

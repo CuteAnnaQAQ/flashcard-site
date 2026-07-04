@@ -12,22 +12,28 @@ const state = {
   studyMode: "due",
   progress: {},
   background: "aurora",
+  sidebarCollapsed: false,
+  sidebarWidth: 320,
+  sidebarResizing: false,
+  collapsedNodes: {},
   touchStartX: 0,
   touchStartY: 0,
-  pointerMoved: false,
   suppressNextFlip: false
 };
 
 let mathRenderToken = 0;
 
 const els = {
-  fileInput: document.getElementById("file-input"),
-  reloadButton: document.getElementById("reload-button"),
+  shell: document.querySelector(".shell"),
+  sidebarToggle: document.getElementById("sidebar-toggle"),
+  sidebarResizer: document.getElementById("sidebar-resizer"),
   deckList: document.getElementById("deck-list"),
   reviewSummary: document.getElementById("review-summary"),
   modeButtons: document.querySelectorAll("[data-mode]"),
   deckTitle: document.getElementById("deck-title"),
   deckMeta: document.getElementById("deck-meta"),
+  progressLabel: document.getElementById("progress-label"),
+  progressPercent: document.getElementById("progress-percent"),
   progressFill: document.getElementById("progress-fill"),
   card: document.getElementById("card"),
   cardKicker: document.getElementById("card-kicker"),
@@ -36,10 +42,18 @@ const els = {
   prevButton: document.getElementById("prev-button"),
   nextButton: document.getElementById("next-button"),
   flipButton: document.getElementById("flip-button"),
+  prevGroupButton: document.getElementById("prev-group-button"),
+  nextGroupButton: document.getElementById("next-group-button"),
   shuffleButton: document.getElementById("shuffle-button"),
   resetButton: document.getElementById("reset-button"),
   cardGroup: document.getElementById("card-group"),
   backgroundSwatches: document.querySelectorAll("[data-bg]")
+};
+
+const SIDEBAR_WIDTH = {
+  min: 260,
+  max: 640,
+  defaultValue: 320
 };
 
 function cardId(card) {
@@ -130,6 +144,118 @@ function setBackground(name) {
   loadBackground();
 }
 
+function loadLayoutState() {
+  state.sidebarCollapsed = localStorage.getItem("deckfile-sidebar-collapsed") === "true";
+  setSidebarWidth(Number(localStorage.getItem("deckfile-sidebar-width") || SIDEBAR_WIDTH.defaultValue));
+  try {
+    state.collapsedNodes = JSON.parse(localStorage.getItem("deckfile-collapsed-nodes") || "{}");
+  } catch {
+    state.collapsedNodes = {};
+  }
+  applySidebarState();
+}
+
+function sidebarWidthMax() {
+  if (window.innerWidth <= 860) return SIDEBAR_WIDTH.defaultValue;
+  return Math.max(SIDEBAR_WIDTH.min, Math.min(SIDEBAR_WIDTH.max, window.innerWidth - 520));
+}
+
+function clampSidebarWidth(value) {
+  const numeric = Number(value) || SIDEBAR_WIDTH.defaultValue;
+  return Math.min(Math.max(numeric, SIDEBAR_WIDTH.min), sidebarWidthMax());
+}
+
+function setSidebarWidth(value, persist = false) {
+  const width = Math.round(clampSidebarWidth(value));
+  state.sidebarWidth = width;
+  document.documentElement.style.setProperty("--sidebar-width", `${width}px`);
+  els.sidebarResizer?.setAttribute("aria-valuenow", String(width));
+  els.sidebarResizer?.setAttribute("aria-valuemax", String(sidebarWidthMax()));
+  if (persist) localStorage.setItem("deckfile-sidebar-width", String(width));
+}
+
+function applySidebarState() {
+  document.body.classList.toggle("sidebar-collapsed", state.sidebarCollapsed);
+  els.sidebarToggle?.setAttribute("aria-expanded", String(!state.sidebarCollapsed));
+  if (els.sidebarToggle) {
+    els.sidebarToggle.textContent = "☰";
+    els.sidebarToggle.title = state.sidebarCollapsed ? "展开侧边栏" : "折叠侧边栏";
+    els.sidebarToggle.classList.toggle("active", !state.sidebarCollapsed);
+  }
+}
+
+function toggleSidebar() {
+  state.sidebarCollapsed = !state.sidebarCollapsed;
+  localStorage.setItem("deckfile-sidebar-collapsed", String(state.sidebarCollapsed));
+  applySidebarState();
+}
+
+function beginSidebarResize(event) {
+  if (window.matchMedia("(max-width: 860px)").matches) return;
+  state.sidebarResizing = true;
+  document.body.classList.add("sidebar-resizing");
+  els.sidebarResizer?.setPointerCapture?.(event.pointerId);
+  setSidebarWidth(event.clientX);
+  event.preventDefault();
+}
+
+function updateSidebarResize(event) {
+  if (!state.sidebarResizing) return;
+  setSidebarWidth(event.clientX);
+}
+
+function endSidebarResize(event) {
+  if (!state.sidebarResizing) return;
+  state.sidebarResizing = false;
+  document.body.classList.remove("sidebar-resizing");
+  els.sidebarResizer?.releasePointerCapture?.(event.pointerId);
+  setSidebarWidth(state.sidebarWidth, true);
+}
+
+function resizeSidebarWithKeyboard(event) {
+  const step = event.shiftKey ? 48 : 16;
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    setSidebarWidth(state.sidebarWidth - step, true);
+  } else if (event.key === "ArrowRight") {
+    event.preventDefault();
+    setSidebarWidth(state.sidebarWidth + step, true);
+  } else if (event.key === "Home") {
+    event.preventDefault();
+    setSidebarWidth(SIDEBAR_WIDTH.min, true);
+  } else if (event.key === "End") {
+    event.preventDefault();
+    setSidebarWidth(SIDEBAR_WIDTH.max, true);
+  }
+}
+
+function saveCollapsedNodes() {
+  localStorage.setItem("deckfile-collapsed-nodes", JSON.stringify(state.collapsedNodes));
+}
+
+function toggleTreeNode(nodeKey, row, childrenWrap, toggle) {
+  const collapsed = !state.collapsedNodes[nodeKey];
+  if (collapsed) {
+    state.collapsedNodes[nodeKey] = true;
+  } else {
+    delete state.collapsedNodes[nodeKey];
+  }
+  saveCollapsedNodes();
+
+  if (!row || !childrenWrap) {
+    renderDeckList();
+    return;
+  }
+
+  row.classList.toggle("collapsed", collapsed);
+  childrenWrap.classList.toggle("collapsed", collapsed);
+  childrenWrap.setAttribute("aria-hidden", String(collapsed));
+  if (toggle) {
+    toggle.textContent = collapsed ? "›" : "⌄";
+    toggle.title = collapsed ? "展开" : "折叠";
+  }
+}
+
 function sanitizeHTML(html) {
   const template = document.createElement("template");
   template.innerHTML = html;
@@ -204,7 +330,6 @@ function splitPipeRow(line) {
 
   parts.push(part.trim());
   if (parts[0] === "") parts.shift();
-  if (parts[parts.length - 1] === "") parts.pop();
   return parts.length >= 2 ? parts : null;
 }
 
@@ -233,8 +358,66 @@ function extractNid(...values) {
 function stripNid(value) {
   return String(value || "")
     .replace(/(?:\s*<br\s*\/?>\s*){0,2}\bnidd?\d{6,}\b/gi, "")
-    .replace(/\s{2,}/g, " ")
     .trim();
+}
+
+function escapeHTML(text) {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function renderInlineLines(lines) {
+  return lines
+    .map((line) => line.trimEnd())
+    .join("<br>")
+    .replace(/(?:<br>){3,}/g, "<br><br>")
+    .replace(/^(?:<br>)+|(?:<br>)+$/g, "")
+    .trim();
+}
+
+function formatMarkdownCell(value) {
+  const lines = String(value || "").replace(/\r\n/g, "\n").split("\n");
+  const output = [];
+  let textLines = [];
+  let codeLines = [];
+  let inFence = false;
+
+  const flushText = () => {
+    const text = renderInlineLines(textLines);
+    if (text) output.push(text);
+    textLines = [];
+  };
+
+  const flushCode = () => {
+    output.push(`<pre><code>${escapeHTML(codeLines.join("\n"))}</code></pre>`);
+    codeLines = [];
+  };
+
+  lines.forEach((line) => {
+    if (/^\s*```/.test(line)) {
+      if (inFence) {
+        flushCode();
+        inFence = false;
+      } else {
+        flushText();
+        inFence = true;
+      }
+      return;
+    }
+
+    if (inFence) {
+      codeLines.push(line);
+      return;
+    }
+
+    textLines.push(line);
+  });
+
+  if (inFence) flushCode();
+  flushText();
+  return output.join("<br>").trim();
 }
 
 function normalizeHeadingPath(stack) {
@@ -246,31 +429,16 @@ function parseCards(markdown, deck) {
   const lines = markdown.replace(/\r\n/g, "\n").split("\n");
   const headingStack = [];
   const deckName = deck.name;
+  let pending = null;
 
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line) continue;
-
-    const heading = line.match(/^#{1,6}\s+(.+)$/);
-    if (heading) {
-      const level = Math.min(heading[0].match(/^#+/)[0].length, 6);
-      headingStack[level - 1] = heading[1].trim();
-      headingStack.length = level;
-      continue;
-    }
-
-    const parts = splitMarkdownRow(line);
-    if (!parts) continue;
-
-    const first = parts[0].replace(/<[^>]*>/g, "").trim().toLowerCase();
-    if (["问题", "question", "front", "正面"].includes(first)) continue;
-
-    const rawFront = parts[0] || "";
-    const rawBack = parts[1] || "";
-    const rawTags = parts[2] || "";
-    const front = stripNid(rawFront);
-    const back = stripNid(rawBack);
-    const headingPath = normalizeHeadingPath(headingStack);
+  const pushPending = () => {
+    if (!pending) return;
+    const rawFront = pending.frontLines.join("\n");
+    const rawBack = pending.backLines.join("\n");
+    const rawTags = pending.tags;
+    const front = stripNid(formatMarkdownCell(rawFront));
+    const back = stripNid(formatMarkdownCell(rawBack));
+    const headingPath = pending.headingPath;
     const group = headingPath.join(" / ") || "未分组";
     const tags = (rawTags || group || deckName)
       .split(/\s+/)
@@ -278,20 +446,74 @@ function parseCards(markdown, deck) {
       .filter(Boolean);
     const nid = extractNid(rawFront, rawBack, rawTags);
 
-    if (!front || !back) continue;
-    cards.push({
-      front,
-      back,
-      tags,
-      nid,
-      deck: deckName,
-      deckId: deck.id,
-      group,
-      path: headingPath,
-      pathKey: headingPath.join("\u001f")
-    });
+    if (front && back) {
+      cards.push({
+        front,
+        back,
+        tags,
+        nid,
+        deck: deckName,
+        deckId: deck.id,
+        group,
+        path: headingPath,
+        pathKey: headingPath.join("\u001f")
+      });
+    }
+    pending = null;
+  };
+
+  const appendPendingLine = (rawLine) => {
+    if (!pending) return;
+    const line = rawLine.replace(/\s+$/, "");
+    pending.backLines.push(line);
+    if (/^\s*```/.test(line)) pending.inFence = !pending.inFence;
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      if (pending) appendPendingLine(rawLine);
+      continue;
+    }
+
+    if (pending?.inFence) {
+      appendPendingLine(rawLine);
+      continue;
+    }
+
+    const heading = line.match(/^#{1,6}\s+(.+)$/);
+    if (heading) {
+      pushPending();
+      const level = Math.min(heading[0].match(/^#+/)[0].length, 6);
+      headingStack[level - 1] = heading[1].trim();
+      headingStack.length = level;
+      continue;
+    }
+
+    const parts = splitMarkdownRow(line);
+    if (!parts) {
+      if (pending) appendPendingLine(rawLine);
+      continue;
+    }
+
+    const first = parts[0].replace(/<[^>]*>/g, "").trim().toLowerCase();
+    if (["问题", "question", "front", "正面"].includes(first)) {
+      pushPending();
+      continue;
+    }
+
+    pushPending();
+    pending = {
+      frontLines: [parts[0] || ""],
+      backLines: [parts[1] || ""],
+      tags: parts[2] || "",
+      headingPath: normalizeHeadingPath(headingStack),
+      inFence: false
+    };
+    if (/^\s*```/.test(parts[1] || "")) pending.inFence = true;
   }
 
+  pushPending();
   return cards;
 }
 
@@ -362,8 +584,21 @@ function cardsForScope(deckId, pathKey = "") {
 }
 
 function filteredByStudyMode(cards) {
-  if (state.studyMode !== "due") return cards;
-  return cards.filter((card) => isNew(card) || isDue(card));
+  if (state.studyMode === "new") return cards.filter((card) => isNew(card));
+  if (state.studyMode === "due") return cards.filter((card) => isNew(card) || isDue(card));
+  return cards;
+}
+
+function queueShouldRandomize(mode = state.studyMode) {
+  return mode === "due" || mode === "new";
+}
+
+function shuffleList(list) {
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [list[i], list[j]] = [list[j], list[i]];
+  }
+  return list;
 }
 
 function selectStudyNode(deckId, pathKey = "", label = "") {
@@ -377,26 +612,36 @@ function selectStudyNode(deckId, pathKey = "", label = "") {
   state.cards = cardsForScope(deck.id, pathKey);
   state.index = 0;
   state.showingAnswer = false;
-  applyFilter();
+  applyFilter({ randomize: queueShouldRandomize() });
   renderDeckList();
   renderReviewSummary();
 }
 
-function applyFilter() {
+function applyFilter(options = {}) {
+  const { randomize = false } = options;
   state.filtered = filteredByStudyMode(state.cards);
+  if (randomize) shuffleList(state.filtered);
   if (state.index >= state.filtered.length) state.index = 0;
   state.showingAnswer = false;
   renderCard();
   renderReviewSummary();
 }
 
+function setStudyMode(mode, options = {}) {
+  state.studyMode = mode;
+  state.index = 0;
+  state.showingAnswer = false;
+  applyFilter({ randomize: options.randomize ?? queueShouldRandomize(mode) });
+  renderDeckList();
+}
+
 function createTreeNode(label, type, data = {}) {
-  return { label, type, children: [], childMap: new Map(), ...data };
+  return { label, type, nodeKey: data.nodeKey || `${type}:${label}`, children: [], childMap: new Map(), ...data };
 }
 
 function childNode(parent, key, label, type, data = {}) {
   if (!parent.childMap.has(key)) {
-    const node = createTreeNode(label, type, data);
+    const node = createTreeNode(label, type, { ...data, nodeKey: `${parent.nodeKey}>${key}` });
     parent.childMap.set(key, node);
     parent.children.push(node);
   }
@@ -404,7 +649,7 @@ function childNode(parent, key, label, type, data = {}) {
 }
 
 function buildDeckTree() {
-  const root = createTreeNode("root", "root");
+  const root = createTreeNode("root", "root", { nodeKey: "root" });
 
   state.decks.forEach((deck) => {
     const segments = (deck.file || deck.name).replace(/\\/g, "/").split("/").filter(Boolean);
@@ -440,6 +685,42 @@ function buildDeckTree() {
   return root;
 }
 
+function collectStudyScopes(node = buildDeckTree(), scopes = []) {
+  node.children.forEach((child) => {
+    if (child.type === "scope") {
+      const cards = cardsForScope(child.deckId, child.pathKey);
+      if (cards.length) {
+        scopes.push({
+          deckId: child.deckId,
+          pathKey: child.pathKey,
+          labelPath: child.labelPath,
+          nodeId: scopeId(child.deckId, child.pathKey)
+        });
+      }
+    }
+    collectStudyScopes(child, scopes);
+  });
+  return scopes;
+}
+
+function updateGroupButtons() {
+  const canSwitch = collectStudyScopes().length > 1;
+  [els.prevGroupButton, els.nextGroupButton].forEach((button) => {
+    if (!button) return;
+    button.disabled = !canSwitch;
+  });
+}
+
+function selectAdjacentStudyNode(delta) {
+  const scopes = collectStudyScopes();
+  if (!scopes.length) return;
+  const currentIndex = scopes.findIndex((scope) => scope.nodeId === state.activeNodeId);
+  const baseIndex = currentIndex === -1 ? 0 : currentIndex;
+  const nextIndex = (baseIndex + delta + scopes.length) % scopes.length;
+  const nextScope = scopes[nextIndex];
+  selectStudyNode(nextScope.deckId, nextScope.pathKey, nextScope.labelPath);
+}
+
 function renderDeckList() {
   els.deckList.innerHTML = "";
   if (!state.decks.length) {
@@ -447,38 +728,85 @@ function renderDeckList() {
     empty.className = "deck-item";
     empty.textContent = "cards/index.json";
     els.deckList.appendChild(empty);
+    updateGroupButtons();
     return;
   }
 
   renderTreeNode(buildDeckTree(), els.deckList, 0);
+  updateGroupButtons();
 }
 
 function renderTreeNode(node, container, depth) {
   node.children.forEach((child) => {
+    const hasChildren = child.children.length > 0;
+    const collapsed = Boolean(state.collapsedNodes[child.nodeKey]);
+    const branch = document.createElement("div");
+    branch.className = `tree-branch ${child.type === "folder" ? "folder-branch" : "scope-branch"}`;
+    branch.style.setProperty("--depth", depth);
+
+    const row = document.createElement("div");
+    row.className = `tree-row ${child.type === "folder" ? "folder-row" : "scope-row"}${collapsed ? " collapsed" : ""}`;
+    row.style.setProperty("--depth", depth);
+
+    const childrenWrap = document.createElement("div");
+    childrenWrap.className = `tree-children${collapsed ? " collapsed" : ""}`;
+    childrenWrap.setAttribute("aria-hidden", String(collapsed));
+
+    const toggle = document.createElement("button");
+    toggle.className = `tree-toggle${hasChildren ? "" : " empty"}`;
+    toggle.type = "button";
+    toggle.textContent = hasChildren ? (collapsed ? "›" : "⌄") : "";
+    toggle.title = hasChildren ? (collapsed ? "展开" : "折叠") : "";
+    if (hasChildren) {
+      toggle.addEventListener("click", (event) => {
+        event.stopPropagation();
+        toggleTreeNode(child.nodeKey, row, childrenWrap, toggle);
+      });
+    }
+    row.appendChild(toggle);
+
     if (child.type === "scope") {
       const cards = cardsForScope(child.deckId, child.pathKey);
       const counts = reviewCounts(cards);
       const waiting = counts.new + counts.due;
       const active = scopeId(child.deckId, child.pathKey) === state.activeNodeId;
       const button = document.createElement("button");
-      button.className = `deck-item file-node${active ? " active" : ""}`;
-      button.style.setProperty("--depth", depth);
+      button.className = `deck-item${active ? " active" : ""}`;
       button.innerHTML = `
-        <span class="tree-label">${sanitizeHTML(child.label)}</span>
-        <small>待 ${waiting} · 新 ${counts.new} · 总 ${counts.total}</small>
+        <span class="tree-label">
+          <span class="tree-name">${sanitizeHTML(child.label)}</span>
+        </span>
+        <span class="tree-counts" aria-label="待复习 ${waiting}，新卡 ${counts.new}，总数 ${counts.total}">
+          <span class="tree-count waiting">待 ${waiting}</span>
+          <span class="tree-count new">新 ${counts.new}</span>
+          <span class="tree-count total">总 ${counts.total}</span>
+        </span>
       `;
       button.addEventListener("click", () => selectStudyNode(child.deckId, child.pathKey, child.labelPath));
-      container.appendChild(button);
-      renderTreeNode(child, container, depth + 1);
+      row.appendChild(button);
+      branch.appendChild(row);
+      if (hasChildren) {
+        renderTreeNode(child, childrenWrap, depth + 1);
+        branch.appendChild(childrenWrap);
+      }
+      container.appendChild(branch);
       return;
     }
 
-    const folder = document.createElement("div");
+    const folder = document.createElement("button");
     folder.className = "tree-folder";
-    folder.style.setProperty("--depth", depth);
-    folder.textContent = child.label;
-    container.appendChild(folder);
-    renderTreeNode(child, container, depth + 1);
+    folder.type = "button";
+    folder.innerHTML = `<span class="tree-folder-name">${sanitizeHTML(child.label)}</span>`;
+    folder.addEventListener("click", () => {
+      if (hasChildren) toggleTreeNode(child.nodeKey, row, childrenWrap, toggle);
+    });
+    row.appendChild(folder);
+    branch.appendChild(row);
+    if (hasChildren) {
+      renderTreeNode(child, childrenWrap, depth + 1);
+      branch.appendChild(childrenWrap);
+    }
+    container.appendChild(branch);
   });
 }
 
@@ -487,10 +815,21 @@ function renderReviewSummary() {
   const counts = reviewCounts(state.cards);
   const waiting = counts.new + counts.due;
   els.reviewSummary.innerHTML = `
-    <div><b>${waiting}</b><span>待复习</span></div>
-    <div><b>${counts.new}</b><span>新卡</span></div>
-    <div><b>${counts.scheduled}</b><span>已安排</span></div>
+    <button class="summary-card${state.studyMode === "due" ? " active" : ""}" type="button" data-summary-mode="due">
+      <b>${waiting}</b><span>待复习</span><small>到期+新卡</small>
+    </button>
+    <button class="summary-card${state.studyMode === "new" ? " active" : ""}" type="button" data-summary-mode="new">
+      <b>${counts.new}</b><span>新卡</span><small>随机开始</small>
+    </button>
+    <button class="summary-card${state.studyMode === "all" ? " active" : ""}" type="button" data-summary-mode="all">
+      <b>${counts.total}</b><span>全部</span><small>已安排 ${counts.scheduled}</small>
+    </button>
   `;
+  els.reviewSummary.querySelectorAll("[data-summary-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setStudyMode(button.dataset.summaryMode, { randomize: queueShouldRandomize(button.dataset.summaryMode) });
+    });
+  });
   els.modeButtons.forEach((button) => {
     button.classList.toggle("active", button.dataset.mode === state.studyMode);
   });
@@ -516,15 +855,18 @@ function renderCard() {
   const card = state.filtered[state.index];
   els.deckTitle.textContent = state.activeDeck || "未加载卡片";
   const scopeLabel = state.activePathLabel ? ` · ${state.activePathLabel}` : "";
-  const modeLabel = state.studyMode === "due" ? "待复习" : "全部";
+  const modeLabel = { due: "待复习", new: "新卡", all: "全部" }[state.studyMode] || "全部";
   els.deckMeta.textContent = `${modeLabel} ${total} cards${scopeLabel}`;
-  els.progressFill.style.width = total ? `${((state.index + 1) / total) * 100}%` : "0%";
+  const progressPercent = total ? Math.round(((state.index + 1) / total) * 100) : 0;
+  els.progressFill.style.width = `${progressPercent}%`;
+  els.progressLabel.textContent = total ? `${state.index + 1} / ${total}` : "0 / 0";
+  els.progressPercent.textContent = `${progressPercent}%`;
   els.card.classList.toggle("showing-answer", Boolean(card && state.showingAnswer));
 
   if (!card) {
     els.cardKicker.textContent = "Front";
-    els.cardGroup.textContent = state.studyMode === "due" ? "当前章节没有等待复习的卡片" : "";
-    els.cardContent.textContent = state.decks.length ? "切换到“全部”查看已安排的卡片" : "选择或导入 Markdown 文件";
+    els.cardGroup.textContent = state.studyMode === "all" ? "" : `当前章节没有${modeLabel}卡片`;
+    els.cardContent.textContent = state.decks.length ? "切换到“全部”查看已安排的卡片" : "选择 Markdown 卡片";
     els.cardStats.textContent = "";
     els.flipButton.textContent = "显示答案";
     return;
@@ -603,8 +945,8 @@ function gradeCurrent(grade) {
   };
   saveProgress();
   renderDeckList();
-  if (state.studyMode === "due" && grade !== "again") {
-    applyFilter();
+  if ((state.studyMode === "due" && grade !== "again") || state.studyMode === "new") {
+    applyFilter({ randomize: queueShouldRandomize() });
   } else {
     move(1);
   }
@@ -617,25 +959,28 @@ function nextIntervalDays(grade, previous) {
   return Math.max(2, Math.ceil((previous.intervalDays || 1) * 2.4));
 }
 
-els.fileInput.addEventListener("change", (event) => importFiles([...event.target.files]));
-els.reloadButton.addEventListener("click", loadRepositoryDecks);
+els.sidebarToggle.addEventListener("click", toggleSidebar);
+els.sidebarResizer?.addEventListener("pointerdown", beginSidebarResize);
+els.sidebarResizer?.addEventListener("keydown", resizeSidebarWithKeyboard);
+window.addEventListener("pointermove", updateSidebarResize);
+window.addEventListener("pointerup", endSidebarResize);
+window.addEventListener("pointercancel", endSidebarResize);
+window.addEventListener("resize", () => setSidebarWidth(state.sidebarWidth));
 els.prevButton.addEventListener("click", () => move(-1));
 els.nextButton.addEventListener("click", () => move(1));
 els.flipButton.addEventListener("click", toggleAnswer);
+els.prevGroupButton?.addEventListener("click", () => selectAdjacentStudyNode(-1));
+els.nextGroupButton?.addEventListener("click", () => selectAdjacentStudyNode(1));
 els.shuffleButton.addEventListener("click", shuffleCards);
 els.resetButton.addEventListener("click", () => {
   state.progress = {};
   saveProgress();
-  applyFilter();
+  applyFilter({ randomize: queueShouldRandomize() });
   renderDeckList();
 });
 els.modeButtons.forEach((button) => {
   button.addEventListener("click", () => {
-    state.studyMode = button.dataset.mode;
-    state.index = 0;
-    state.showingAnswer = false;
-    applyFilter();
-    renderDeckList();
+    setStudyMode(button.dataset.mode, { randomize: queueShouldRandomize(button.dataset.mode) });
   });
 });
 els.backgroundSwatches.forEach((button) => {
@@ -681,14 +1026,14 @@ els.card.addEventListener("click", (event) => {
     state.suppressNextFlip = false;
     return;
   }
-  showAnswer();
+  toggleAnswer();
 });
 
 document.addEventListener("keydown", (event) => {
   if (event.target instanceof HTMLInputElement) return;
   if (event.key === " ") {
     event.preventDefault();
-    showAnswer();
+    toggleAnswer();
   } else if (event.key === "ArrowRight") {
     move(1);
   } else if (event.key === "ArrowLeft") {
@@ -706,4 +1051,5 @@ window.addEventListener("mathjax-ready", renderMath);
 
 loadProgress();
 loadBackground();
+loadLayoutState();
 loadRepositoryDecks();

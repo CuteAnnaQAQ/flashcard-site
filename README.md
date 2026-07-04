@@ -26,6 +26,35 @@
 
 Markdown 标题会作为页面里的“小分组”。例如 `# 线性代数` 下面的所有卡片都会归入“线性代数”分组，直到遇到下一个标题。
 
+### 多行答案
+
+如果答案需要换行，可以把第一行写成 `问题 |`，后面的连续内容都会并入这张卡片的答案，直到遇到下一张卡片、下一个标题，或文件结束：
+
+```markdown
+二分法的两个函数的用法? |
+
+lower_bound 找第一个大于等于 target 的位置。
+
+upper_bound 找第一个大于 target 的位置。
+
+返回值都是迭代器。
+```
+
+代码块也可以直接放在多行答案里：
+
+````markdown
+二叉树的最近公共祖先怎么求？ | 通过递归查找：
+
+```cpp
+TreeNode* lowestCommonAncestor(TreeNode* root, TreeNode* p, TreeNode* q) {
+    if (!root || root == p || root == q) return root;
+    TreeNode* left = lowestCommonAncestor(root->left, p, q);
+    TreeNode* right = lowestCommonAncestor(root->right, p, q);
+    return left && right ? root : (left ? left : right);
+}
+```
+````
+
 ## LaTeX 公式
 
 页面使用 MathJax 渲染公式，后续公式建议直接写 LaTeX：
