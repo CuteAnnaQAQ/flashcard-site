@@ -826,6 +826,7 @@ body[data-bg="dusk"] .card-group {
 .card-content {
   align-self: center;
   width: 100%;
+  min-width: 0;
   font-size: 32px;
   line-height: 1.48;
   overflow-wrap: anywhere;
@@ -839,6 +840,7 @@ body[data-bg="dusk"] .card-group {
 .anki-front,
 .anki-back {
   width: 100%;
+  min-width: 0;
 }
 
 .anki-frontside {
@@ -876,20 +878,30 @@ body[data-bg="dusk"] .card-group {
 
 .card-content pre {
   position: relative;
+  box-sizing: border-box;
+  display: block;
   max-width: 100%;
   margin: 0.7em 0;
-  padding: 0.85em;
-  overflow-x: auto;
+  padding: 0.85em 0.85em 1.05em;
+  overflow-x: scroll;
+  overflow-y: auto;
   overscroll-behavior-inline: contain;
+  scrollbar-gutter: stable;
   border: 1px solid var(--line);
   border-radius: var(--radius-small);
-  background: rgba(255, 255, 255, 0.54);
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0)) 0 0 / 22px 100% no-repeat,
+    linear-gradient(270deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0)) 100% 0 / 22px 100% no-repeat,
+    rgba(255, 255, 255, 0.54);
   font-family: Consolas, "Courier New", monospace;
   font-size: 0.68em;
   line-height: 1.45;
   text-align: left;
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: pre;
   user-select: text;
-  scrollbar-width: thin;
+  scrollbar-width: auto;
   scrollbar-color: rgba(217, 48, 150, 0.36) rgba(255, 255, 255, 0.38);
   touch-action: pan-x pan-y;
   -webkit-overflow-scrolling: touch;
@@ -902,17 +914,21 @@ body[data-bg="dusk"] .card-group {
 }
 
 .card-content pre::-webkit-scrollbar {
-  height: 8px;
+  height: 12px;
 }
 
 .card-content pre::-webkit-scrollbar-track {
+  border: 3px solid transparent;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.42);
+  background-clip: padding-box;
 }
 
 .card-content pre::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
   border-radius: 999px;
   background: linear-gradient(90deg, rgba(255, 98, 184, 0.68), rgba(143, 107, 255, 0.68));
+  background-clip: padding-box;
 }
 
 .card-content pre[data-lang] {
@@ -932,12 +948,17 @@ body[data-bg="dusk"] .card-group {
 }
 
 .card-content pre code {
+  display: block;
+  width: max-content;
+  min-width: 100%;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   color: inherit;
   font-size: inherit;
+  overflow-wrap: normal;
+  word-break: normal;
   white-space: pre;
 }
 

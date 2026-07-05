@@ -475,7 +475,7 @@ function formatMarkdownCell(value) {
 
   const flushCode = () => {
     const language = normalizeCodeLanguage(codeLanguage);
-    const preAttributes = [`class="code-card"`, `tabindex="0"`];
+    const preAttributes = [`class="code-card"`, `tabindex="0"`, `role="region"`, `aria-label="代码块，可左右滑动查看"`];
     if (language) preAttributes.push(`data-lang="${escapeAttribute(codeLanguage.trim())}"`);
     const codeAttribute = language ? ` class="language-${language}"` : "";
     output.push(`<pre ${preAttributes.join(" ")}><code${codeAttribute}>${escapeHTML(codeLines.join("\n"))}</code></pre>`);
@@ -1019,7 +1019,9 @@ function stopCodeBlockTouch(event) {
 function beginCodeBlockScroll(event) {
   const block = codeBlockFromEvent(event);
   if (!block || event.pointerType !== "mouse" || event.button !== 0) return;
+  if (block.scrollWidth <= block.clientWidth) return;
   event.stopPropagation();
+  if (event.cancelable) event.preventDefault();
   state.codeScroll = {
     block,
     pointerId: event.pointerId,
