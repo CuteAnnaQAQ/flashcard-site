@@ -59,6 +59,24 @@ const SIDEBAR_WIDTH = {
   defaultValue: 320
 };
 
+const ANKI_SCHEDULE = {
+  learningStepsMinutes: [1, 10],
+  relearningStepsMinutes: [10],
+  graduatingIntervalDays: 1,
+  easyIntervalDays: 4,
+  startingEase: 2.5,
+  minimumEase: 1.3,
+  hardEasePenalty: 0.15,
+  againEasePenalty: 0.2,
+  hardIntervalMultiplier: 1.2,
+  easyBonus: 1.3,
+  intervalModifier: 1,
+  newIntervalMultiplier: 0,
+  minimumIntervalDays: 1,
+  maximumIntervalDays: 36500,
+  dayMs: 24 * 60 * 60 * 1000
+};
+
 function cardId(card) {
   if (card.nid) return `${card.deckId || card.deck}::${card.nid}::${card.front}`;
   return `${card.deckId || card.deck}::${card.pathKey || ""}::${card.front}::${card.back}`;
@@ -92,12 +110,38 @@ function isDeletedCard(card) {
   return Boolean(state.deletedCards[cardId(card)]);
 }
 
+function clampNumber(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function addMinutes(date, minutes) {
+  return new Date(date.getTime() + minutes * 60 * 1000);
+}
+
+function addDays(date, days) {
+  return new Date(date.getTime() + days * ANKI_SCHEDULE.dayMs);
+}
+
+function normalizeCardState(record) {
+  const stateName = record.state || record.cardState || record.type || "";
+  if (["learning", "review", "relearning"].includes(stateName)) return stateName;
+  if (record.learningStep !== undefined) return Number(record.lapses || 0) > 0 ? "relearning" : "learning";
+  if (Number(record.intervalDays || 0) < 1 && record.lastGrade === "again") return "relearning";
+  return "review";
+}
+
 function normalizeRecord(record) {
   if (!record) return null;
+  const intervalDays = Number(record.intervalDays || 0);
+  const ease = Number(record.ease || record.easeFactor || ANKI_SCHEDULE.startingEase);
   return {
+    state: normalizeCardState(record),
     reps: Number(record.reps || 1),
     lapses: Number(record.lapses || 0),
-    intervalDays: Number(record.intervalDays || 0),
+    intervalDays,
+    delayMinutes: Number(record.delayMinutes || 0),
+    ease: clampNumber(ease, ANKI_SCHEDULE.minimumEase, 10),
+    learningStep: Number(record.learningStep || 0),
     lastGrade: record.lastGrade || record.grade || "",
     lastReviewedAt: record.lastReviewedAt || record.updatedAt || "",
     dueAt: record.dueAt || record.updatedAt || ""
@@ -985,7 +1029,11 @@ function renderCardStats(card) {
   const record = cardRecord(card);
   if (!record) return "新卡 · 尚未复习";
   const gradeName = { again: "重来", hard: "模糊", good: "记住" }[record.lastGrade] || "已复习";
-  return `已复习 ${record.reps} 次 · 上次 ${gradeName} · 下次 ${formatDateTime(record.dueAt)}`;
+  const stateName = { learning: "学习中", relearning: "重新学习", review: "复习卡" }[record.state] || "已安排";
+  const intervalText = record.state === "review"
+    ? `间隔 ${formatIntervalDays(record.intervalDays)}`
+    : `等待 ${formatLearningDelay(record)}`;
+  return `${stateName} · ${intervalText} · 已复习 ${record.reps} 次 · 上次 ${gradeName} · 下次 ${formatDateTime(record.dueAt)}`;
 }
 
 function toggleAnswer() {
@@ -1087,19 +1135,22 @@ function gradeCurrent(grade) {
   const id = cardId(card);
   const previous = cardRecord(card);
   const now = new Date();
-  const intervalDays = nextIntervalDays(grade, previous);
-  const dueAt = new Date(now.getTime() + intervalDays * 24 * 60 * 60 * 1000);
+  const schedule = nextSchedule(grade, previous, now);
   state.progress[id] = {
+    state: schedule.state,
     reps: (previous?.reps || 0) + 1,
-    lapses: (previous?.lapses || 0) + (grade === "again" ? 1 : 0),
-    intervalDays,
+    lapses: (previous?.lapses || 0) + (schedule.lapsed ? 1 : 0),
+    intervalDays: schedule.intervalDays,
+    delayMinutes: schedule.delayMinutes,
+    ease: schedule.ease,
+    learningStep: schedule.learningStep,
     lastGrade: grade,
     lastReviewedAt: now.toISOString(),
-    dueAt: dueAt.toISOString()
+    dueAt: schedule.dueAt.toISOString()
   };
   saveProgress();
   renderDeckList();
-  if ((state.studyMode === "due" && grade !== "again") || state.studyMode === "new") {
+  if (state.studyMode === "due" || state.studyMode === "new") {
     applyFilter({ randomize: queueShouldRandomize() });
   } else {
     move(1);
@@ -1132,11 +1183,180 @@ function deleteCurrentCard() {
   renderReviewSummary();
 }
 
-function nextIntervalDays(grade, previous) {
-  if (grade === "again") return 0;
-  if (grade === "hard") return Math.max(1, Math.ceil((previous?.intervalDays || 0.5) * 1.4));
-  if (!previous) return 1;
-  return Math.max(2, Math.ceil((previous.intervalDays || 1) * 2.4));
+function formatIntervalDays(days) {
+  const numeric = Number(days || 0);
+  if (numeric < 1) return "今天";
+  if (numeric < 30) return `${Math.round(numeric)} 天`;
+  if (numeric < 365) return `${Math.round(numeric / 30)} 个月`;
+  return `${Math.round(numeric / 365)} 年`;
+}
+
+function formatLearningDelay(record) {
+  const minutes = Number(record.delayMinutes || 0);
+  if (minutes < 60) return `${Math.max(1, Math.round(minutes))} 分钟`;
+  if (minutes < 24 * 60) return `${Math.round(minutes / 60)} 小时`;
+  return `${Math.round(minutes / (24 * 60))} 天`;
+}
+
+function clampInterval(days, previousDays = 0, forceGrowth = false) {
+  const minimum = forceGrowth ? Math.max(ANKI_SCHEDULE.minimumIntervalDays, Math.ceil(previousDays) + 1) : ANKI_SCHEDULE.minimumIntervalDays;
+  return clampNumber(Math.ceil(days), minimum, ANKI_SCHEDULE.maximumIntervalDays);
+}
+
+function learningHardDelay(steps, stepIndex) {
+  const currentStep = steps[stepIndex] || steps[0] || 1;
+  if (stepIndex > 0) return currentStep;
+  if (steps.length > 1) return (steps[0] + steps[1]) / 2;
+  return Math.min(currentStep * 1.5, currentStep + 24 * 60);
+}
+
+function reviewBaseInterval(previous, now) {
+  const previousDays = Math.max(ANKI_SCHEDULE.minimumIntervalDays, Number(previous?.intervalDays || ANKI_SCHEDULE.minimumIntervalDays));
+  const lastReviewed = previous?.lastReviewedAt ? new Date(previous.lastReviewedAt).getTime() : NaN;
+  if (Number.isNaN(lastReviewed)) return previousDays;
+  const elapsedDays = Math.max(0, Math.floor((now.getTime() - lastReviewed) / ANKI_SCHEDULE.dayMs));
+  return Math.max(previousDays, elapsedDays);
+}
+
+function learningSchedule(grade, previous, now, options) {
+  const steps = options.steps.length ? options.steps : [10];
+  const stepIndex = clampNumber(Math.round(previous?.learningStep || 0), 0, steps.length - 1);
+  const ease = previous?.ease || ANKI_SCHEDULE.startingEase;
+  const intervalDays = options.intervalDays ?? 0;
+
+  if (grade === "again") {
+    return {
+      state: options.state,
+      learningStep: 0,
+      intervalDays,
+      delayMinutes: steps[0],
+      ease,
+      dueAt: addMinutes(now, steps[0]),
+      lapsed: false
+    };
+  }
+
+  if (grade === "hard") {
+    const delayMinutes = learningHardDelay(steps, stepIndex);
+    return {
+      state: options.state,
+      learningStep: stepIndex,
+      intervalDays,
+      delayMinutes,
+      ease,
+      dueAt: addMinutes(now, delayMinutes),
+      lapsed: false
+    };
+  }
+
+  const nextStep = stepIndex + 1;
+  if (nextStep < steps.length) {
+    return {
+      state: options.state,
+      learningStep: nextStep,
+      intervalDays,
+      delayMinutes: steps[nextStep],
+      ease,
+      dueAt: addMinutes(now, steps[nextStep]),
+      lapsed: false
+    };
+  }
+
+  const graduatedInterval = clampInterval(options.graduatingIntervalDays || ANKI_SCHEDULE.graduatingIntervalDays);
+  return {
+    state: "review",
+    learningStep: 0,
+    intervalDays: graduatedInterval,
+    delayMinutes: 0,
+    ease,
+    dueAt: addDays(now, graduatedInterval),
+    lapsed: false
+  };
+}
+
+function reviewSchedule(grade, previous, now) {
+  const previousInterval = Math.max(ANKI_SCHEDULE.minimumIntervalDays, Number(previous?.intervalDays || ANKI_SCHEDULE.minimumIntervalDays));
+  const baseInterval = reviewBaseInterval(previous, now);
+  const ease = previous?.ease || ANKI_SCHEDULE.startingEase;
+
+  if (grade === "again") {
+    const nextEase = clampNumber(ease - ANKI_SCHEDULE.againEasePenalty, ANKI_SCHEDULE.minimumEase, 10);
+    const relearningInterval = clampInterval(baseInterval * ANKI_SCHEDULE.newIntervalMultiplier);
+    if (ANKI_SCHEDULE.relearningStepsMinutes.length) {
+      const relearning = learningSchedule("again", { ...previous, ease: nextEase, learningStep: 0 }, now, {
+        state: "relearning",
+        steps: ANKI_SCHEDULE.relearningStepsMinutes,
+        intervalDays: relearningInterval,
+        graduatingIntervalDays: relearningInterval
+      });
+      return { ...relearning, lapsed: true };
+    }
+    return {
+      state: "review",
+      learningStep: 0,
+      intervalDays: relearningInterval,
+      delayMinutes: 0,
+      ease: nextEase,
+      dueAt: addDays(now, relearningInterval),
+      lapsed: true
+    };
+  }
+
+  if (grade === "hard") {
+    const nextEase = clampNumber(ease - ANKI_SCHEDULE.hardEasePenalty, ANKI_SCHEDULE.minimumEase, 10);
+    const intervalDays = clampInterval(baseInterval * ANKI_SCHEDULE.hardIntervalMultiplier * ANKI_SCHEDULE.intervalModifier, previousInterval, true);
+    return {
+      state: "review",
+      learningStep: 0,
+      intervalDays,
+      delayMinutes: 0,
+      ease: nextEase,
+      dueAt: addDays(now, intervalDays),
+      lapsed: false
+    };
+  }
+
+  const intervalDays = clampInterval(baseInterval * ease * ANKI_SCHEDULE.intervalModifier, previousInterval, true);
+  return {
+    state: "review",
+    learningStep: 0,
+    intervalDays,
+    delayMinutes: 0,
+    ease,
+    dueAt: addDays(now, intervalDays),
+    lapsed: false
+  };
+}
+
+function nextSchedule(grade, previous, now = new Date()) {
+  if (!previous) {
+    return learningSchedule(grade, null, now, {
+      state: "learning",
+      steps: ANKI_SCHEDULE.learningStepsMinutes,
+      intervalDays: 0,
+      graduatingIntervalDays: ANKI_SCHEDULE.graduatingIntervalDays
+    });
+  }
+
+  if (previous.state === "learning") {
+    return learningSchedule(grade, previous, now, {
+      state: "learning",
+      steps: ANKI_SCHEDULE.learningStepsMinutes,
+      intervalDays: 0,
+      graduatingIntervalDays: ANKI_SCHEDULE.graduatingIntervalDays
+    });
+  }
+
+  if (previous.state === "relearning") {
+    return learningSchedule(grade, previous, now, {
+      state: "relearning",
+      steps: ANKI_SCHEDULE.relearningStepsMinutes,
+      intervalDays: Math.max(ANKI_SCHEDULE.minimumIntervalDays, previous.intervalDays || ANKI_SCHEDULE.minimumIntervalDays),
+      graduatingIntervalDays: Math.max(ANKI_SCHEDULE.minimumIntervalDays, previous.intervalDays || ANKI_SCHEDULE.minimumIntervalDays)
+    });
+  }
+
+  return reviewSchedule(grade, previous, now);
 }
 
 els.sidebarToggle.addEventListener("click", toggleSidebar);
